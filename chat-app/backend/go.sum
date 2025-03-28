@@ -1,0 +1,6 @@
+github.com/dgrijalva/jwt-go v3.2.0+incompatible h1:7qlOGliEKZXTDg6OTjfoBKDXWrumCAMpl/TFQ4/5kLM=
+github.com/dgrijalva/jwt-go v3.2.0+incompatible/go.mod h1:E3ru+11k8xSBh+hMPgQpCbhDC3lB/DyXPyVpK9X3iY=
+github.com/gorilla/websocket v1.5.3 h1:saDtZ6x/7F6A4n3dFxzmt1EgJ3C5s5p8S0fWkOzmAU=
+github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
+golang.org/x/crypto v0.28.0 h1:DI5pB4I6L0DWHinpLSp/91zQ3v2Ic1KnN4UdCO0S_0=
+golang.org/x/crypto v0.28.0/go.mod h1:rmgy+3U2rU8VNUVnF6U0zEPntUyD8Vew1BdzUGrthfU=
