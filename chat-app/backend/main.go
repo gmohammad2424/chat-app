@@ -61,12 +61,11 @@ var (
     supabaseClient = &http.Client{}
 )
 
-// CORS middleware to allow requests from the frontend
 func corsMiddleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Access-Control-Allow-Origin", "https://chat-frontend-7v8w.onrender.com")
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        w.Header.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
         w.Header().Set("Access-Control-Allow-Credentials", "true")
 
         if r.Method == http.MethodOptions {
@@ -119,11 +118,20 @@ func (c *Client) readPump() {
         c.conn.Close()
     }()
 
+    // Set read deadline to prevent hanging connections
+    c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+
+    // Handle pong messages to reset the read deadline
+    c.conn.SetPongHandler(func(string) error {
+        c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+        return nil
+    })
+
     for {
         _, message, err := c.conn.ReadMessage()
         if err != nil {
             if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-                log.Printf("Error: %v", err)
+                log.Printf("readPump error: %v", err)
             }
             break
         }
@@ -138,23 +146,45 @@ func (c *Client) readPump() {
         msg.Sender = c.username
         msg.Timestamp = time.Now()
         hub.broadcast <- msg
+
+        // Reset read deadline after a successful read
+        c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
     }
 }
 
 func (c *Client) writePump() {
+    ticker := time.NewTicker(30 * time.Second) // Send ping every 30 seconds
     defer func() {
+        ticker.Stop()
         c.conn.Close()
     }()
 
-    for message := range c.send {
-        w, err := c.conn.NextWriter(websocket.TextMessage)
-        if err != nil {
-            return
-        }
+    for {
+        select {
+        case message, ok := <-c.send:
+            if !ok {
+                c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+                return
+            }
 
-        json.NewEncoder(w).Encode(message)
-        if err := w.Close(); err != nil {
-            return
+            w, err := c.conn.NextWriter(websocket.TextMessage)
+            if err != nil {
+                log.Printf("writePump error (NextWriter): %v", err)
+                return
+            }
+
+            json.NewEncoder(w).Encode(message)
+            if err := w.Close(); err != nil {
+                log.Printf("writePump error (Close): %v", err)
+                return
+            }
+
+        case <-ticker.C:
+            // Send a ping message to keep the connection alive
+            if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+                log.Printf("writePump error (Ping): %v", err)
+                return
+            }
         }
     }
 }
@@ -224,7 +254,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {
-        log.Println(err)
+        log.Println("Upgrade error:", err)
         return
     }
 
@@ -450,7 +480,6 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(map[string]string{"message": "File uploaded successfully"})
 }
 
-// New endpoint to fetch chat details
 func handleGetChat(w http.ResponseWriter, r *http.Request) {
     if r.Method != http.MethodGet {
         http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -459,6 +488,7 @@ func handleGetChat(w http.ResponseWriter, r *http.Request) {
 
     tokenString := r.URL.Query().Get("token")
     if tokenString == "" {
+        log.Println("Missing token in /chats request")
         http.Error(w, "Missing token", http.StatusUnauthorized)
         return
     }
@@ -470,18 +500,21 @@ func handleGetChat(w http.ResponseWriter, r *http.Request) {
         return jwtSecret, nil
     })
     if err != nil || !token.Valid {
+        log.Printf("Invalid token in /chats request: %v", err)
         http.Error(w, "Invalid token", http.StatusUnauthorized)
         return
     }
 
     claims, ok := token.Claims.(jwt.MapClaims)
     if !ok || !token.Valid {
+        log.Println("Invalid token claims in /chats request")
         http.Error(w, "Invalid token claims", http.StatusUnauthorized)
         return
     }
 
     username, ok := claims["username"].(string)
     if !ok {
+        log.Println("Invalid username in token in /chats request")
         http.Error(w, "Invalid username in token", http.StatusUnauthorized)
         return
     }
@@ -497,6 +530,7 @@ func handleGetChat(w http.ResponseWriter, r *http.Request) {
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
     if err != nil {
+        log.Printf("Error fetching chat from Supabase: %v", err)
         http.Error(w, "Error fetching chat", http.StatusInternalServerError)
         return
     }
@@ -509,11 +543,13 @@ func handleGetChat(w http.ResponseWriter, r *http.Request) {
     }
     json.NewDecoder(resp.Body).Decode(&chats)
     if len(chats) == 0 {
+        log.Printf("Chat not found for chat_id: %s", chatIDStr)
         http.Error(w, "Chat not found", http.StatusNotFound)
         return
     }
 
     if chats[0].Participant1 != username && chats[0].Participant2 != username {
+        log.Printf("User %s not authorized for chat %s", username, chatIDStr)
         http.Error(w, "User not authorized for this chat", http.StatusForbidden)
         return
     }
@@ -545,7 +581,7 @@ func main() {
     mux.HandleFunc("/ws", handleWebSocket)
     mux.HandleFunc("/login", handleLogin)
     mux.HandleFunc("/upload", handleFileUpload)
-    mux.HandleFunc("/chats", handleGetChat) // Register the new endpoint
+    mux.HandleFunc("/chats", handleGetChat)
 
     handler := corsMiddleware(mux)
 
