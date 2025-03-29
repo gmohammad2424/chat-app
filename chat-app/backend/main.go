@@ -23,6 +23,7 @@ type Message struct {
     Content   string    `json:"content"`
     FileURL   string    `json:"file_url"`
     Timestamp time.Time `json:"timestamp"`
+    Type      string    `json:"type,omitempty"` // Added to handle ping/status messages
 }
 
 type Client struct {
@@ -30,21 +31,23 @@ type Client struct {
     chatID        int
     conn          *websocket.Conn
     send          chan Message
-    lastMessageID int // Track the last message ID seen by the client
+    lastMessageID int
 }
 
 type Hub struct {
-    clients    map[*Client]bool
-    broadcast  chan Message
-    register   chan *Client
-    unregister chan *Client
+    clients        map[*Client]bool
+    broadcast      chan Message
+    register       chan *Client
+    unregister     chan *Client
+    connectedUsers map[string][]int // Track connected users by username and chat IDs
 }
 
 var hub = &Hub{
-    clients:    make(map[*Client]bool),
-    broadcast:  make(chan Message),
-    register:   make(chan *Client),
-    unregister: make(chan *Client),
+    clients:        make(map[*Client]bool),
+    broadcast:      make(chan Message),
+    register:       make(chan *Client),
+    unregister:     make(chan *Client),
+    connectedUsers: make(map[string][]int),
 }
 
 var upgrader = websocket.Upgrader{
@@ -83,27 +86,75 @@ func (h *Hub) run() {
         select {
         case client := <-h.register:
             h.clients[client] = true
+            // Add user to connectedUsers
+            h.connectedUsers[client.username] = append(h.connectedUsers[client.username], client.chatID)
+            // Broadcast status update to other users in the same chat
+            for c := range h.clients {
+                if c.chatID == client.chatID && c.username != client.username {
+                    statusMessage := Message{
+                        ChatID:    client.chatID,
+                        Sender:    client.username,
+                        Type:      "status",
+                        Content:   "online",
+                        Timestamp: time.Now(),
+                    }
+                    c.send <- statusMessage
+                }
+            }
         case client := <-h.unregister:
             if _, ok := h.clients[client]; ok {
+                // Remove user from connectedUsers
+                chatIDs := h.connectedUsers[client.username]
+                updatedChatIDs := []int{}
+                for _, id := range chatIDs {
+                    if id != client.chatID {
+                        updatedChatIDs = append(updatedChatIDs, id)
+                    }
+                }
+                if len(updatedChatIDs) > 0 {
+                    h.connectedUsers[client.username] = updatedChatIDs
+                } else {
+                    delete(h.connectedUsers, client.username)
+                }
+                // Broadcast status update to other users in the same chat
+                for c := range h.clients {
+                    if c.chatID == client.chatID && c.username != client.username {
+                        statusMessage := Message{
+                            ChatID:    client.chatID,
+                            Sender:    client.username,
+                            Type:      "status",
+                            Content:   "offline",
+                            Timestamp: time.Now(),
+                        }
+                        c.send <- statusMessage
+                    }
+                }
                 close(client.send)
                 delete(h.clients, client)
             }
         case message := <-h.broadcast:
-            messageData, _ := json.Marshal(message)
-            req, _ := http.NewRequest("POST", supabaseURL+"/rest/v1/messages", bytes.NewBuffer(messageData))
-            req.Header.Set("Content-Type", "application/json")
-            req.Header.Set("apikey", supabaseKey)
-            req.Header.Set("Authorization", "Bearer "+supabaseKey)
-            _, err := supabaseClient.Do(req)
-            if err != nil {
-                log.Printf("Error saving message: %v", err)
+            // Skip saving empty messages with no file URL
+            if message.Type != "status" && message.Content == "" && message.FileURL == "" {
+                continue
+            }
+
+            // Only save chat messages to the database, not status messages
+            if message.Type != "status" {
+                messageData, _ := json.Marshal(message)
+                req, _ := http.NewRequest("POST", supabaseURL+"/rest/v1/messages", bytes.NewBuffer(messageData))
+                req.Header.Set("Content-Type", "application/json")
+                req.Header.Set("apikey", supabaseKey)
+                req.Header.Set("Authorization", "Bearer "+supabaseKey)
+                _, err := supabaseClient.Do(req)
+                if err != nil {
+                    log.Printf("Error saving message: %v", err)
+                }
             }
 
             for client := range h.clients {
                 if client.chatID == message.ChatID {
                     select {
                     case client.send <- message:
-                        // Update the last message ID seen by the client
                         client.lastMessageID = message.ID
                     default:
                         close(client.send)
@@ -158,7 +209,7 @@ func (c *Client) readPump() {
 }
 
 func (c *Client) writePump() {
-    ticker := time.NewTicker(15 * time.Second) // Send ping every 15 seconds
+    ticker := time.NewTicker(15 * time.Second)
     defer func() {
         ticker.Stop()
         c.conn.Close()
@@ -268,7 +319,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
     go client.writePump()
     go client.readPump()
 
-    // Fetch all messages to determine the last message ID
     req, _ = http.NewRequest("GET", supabaseURL+"/rest/v1/messages?chat_id=eq."+chatIDStr+"&order=timestamp.asc", nil)
     req.Header.Set("apikey", supabaseKey)
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
@@ -285,7 +335,28 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         client.lastMessageID = messages[len(messages)-1].ID
     }
 
-    // Don’t send old messages on connect; they’ll be fetched separately by the client if needed
+    // Send initial status of the other user
+    partner := chats[0].Participant1
+    if partner == username {
+        partner = chats[0].Participant2
+    }
+    status := "offline"
+    if chatIDs, exists := hub.connectedUsers[partner]; exists {
+        for _, id := range chatIDs {
+            if id == chatID {
+                status = "online"
+                break
+            }
+        }
+    }
+    statusMessage := Message{
+        ChatID:    chatID,
+        Sender:    partner,
+        Type:      "status",
+        Content:   status,
+        Timestamp: time.Now(),
+    }
+    client.send <- statusMessage
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -436,7 +507,7 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
         receiver = chats[0].Participant2
     }
 
-    err = r.ParseMultipartForm(10 << 20) // 10 MB limit
+    err = r.ParseMultipartForm(10 << 20)
     if err != nil {
         http.Error(w, "Error parsing file", http.StatusBadRequest)
         return
@@ -477,7 +548,7 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
         ChatID:    chatID,
         Sender:    username,
         Receiver:  receiver,
-        Content:   "",
+        Content:   "Sent a file", // Add default content for file messages
         FileURL:   fileURL,
         Timestamp: time.Now(),
     }
@@ -565,6 +636,97 @@ func handleGetChat(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(chats[0])
 }
 
+func handleGetMessages(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodGet {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    tokenString := r.URL.Query().Get("token")
+    if tokenString == "" {
+        log.Println("Missing token in /messages request")
+        http.Error(w, "Missing token", http.StatusUnauthorized)
+        return
+    }
+
+    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+            return nil, fmt.Errorf("unexpected signing method: %v", token.Method)
+        }
+        return jwtSecret, nil
+    })
+    if err != nil || !token.Valid {
+        log.Printf("Invalid token in /messages request: %v", err)
+        http.Error(w, "Invalid token", http.StatusUnauthorized)
+        return
+    }
+
+    claims, ok := token.Claims.(jwt.MapClaims)
+    if !ok || !token.Valid {
+        log.Println("Invalid token claims in /messages request")
+        http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+        return
+    }
+
+    username, ok := claims["username"].(string)
+    if !ok {
+        log.Println("Invalid username in token in /messages request")
+        http.Error(w, "Invalid username in token", http.StatusUnauthorized)
+        return
+    }
+
+    chatIDStr := r.URL.Query().Get("chat_id")
+    if chatIDStr == "" {
+        http.Error(w, "Missing chat_id", http.StatusBadRequest)
+        return
+    }
+
+    req, _ := http.NewRequest("GET", supabaseURL+"/rest/v1/chats?id=eq."+chatIDStr, nil)
+    req.Header.Set("apikey", supabaseKey)
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
+    resp, err := supabaseClient.Do(req)
+    if err != nil {
+        log.Printf("Error fetching chat from Supabase: %v", err)
+        http.Error(w, "Error fetching chat", http.StatusInternalServerError)
+        return
+    }
+    defer resp.Body.Close()
+
+    var chats []struct {
+        ID           int    `json:"id"`
+        Participant1 string `json:"participant1"`
+        Participant2 string `json:"participant2"`
+    }
+    json.NewDecoder(resp.Body).Decode(&chats)
+    if len(chats) == 0 {
+        log.Printf("Chat not found for chat_id: %s", chatIDStr)
+        http.Error(w, "Chat not found", http.StatusNotFound)
+        return
+    }
+
+    if chats[0].Participant1 != username && chats[0].Participant2 != username {
+        log.Printf("User %s not authorized for chat %s", username, chatIDStr)
+        http.Error(w, "User not authorized for this chat", http.StatusForbidden)
+        return
+    }
+
+    req, _ = http.NewRequest("GET", supabaseURL+"/rest/v1/messages?chat_id=eq."+chatIDStr+"&order=timestamp.asc", nil)
+    req.Header.Set("apikey", supabaseKey)
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
+    resp, err = supabaseClient.Do(req)
+    if err != nil {
+        log.Printf("Error fetching messages: %v", err)
+        return
+    }
+    defer resp.Body.Close()
+
+    var messages []Message
+    json.NewDecoder(resp.Body).Decode(&messages)
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(messages)
+}
+
 func main() {
     go hub.run()
 
@@ -589,6 +751,7 @@ func main() {
     mux.HandleFunc("/login", handleLogin)
     mux.HandleFunc("/upload", handleFileUpload)
     mux.HandleFunc("/chats", handleGetChat)
+    mux.HandleFunc("/messages", handleGetMessages)
 
     handler := corsMiddleware(mux)
 
