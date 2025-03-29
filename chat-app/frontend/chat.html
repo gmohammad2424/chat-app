@@ -188,7 +188,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            cursor: POINTER;
+            cursor: pointer;
             transition: all 0.3s;
         }
         #sendButton svg {
@@ -214,7 +214,7 @@
         <div class="chat-header">
             <div>
                 <h3 id="chatPartner">Loading...</h3>
-                <p>Online</p>
+                <p id="status">Offline</p>
             </div>
             <div class="icons">
                 <span>📞</span>
@@ -256,6 +256,7 @@
         const chatId = urlParams.get('chat_id');
         const token = localStorage.getItem('token');
         let username;
+        let chatPartner;
 
         if (!chatId || !token) {
             alert("Please log in to access the chat");
@@ -270,10 +271,11 @@
                 }
                 const chat = await response.json();
                 if (chat.participant1 === username) {
-                    document.getElementById('chatPartner').textContent = chat.participant2;
+                    chatPartner = chat.participant2;
                 } else {
-                    document.getElementById('chatPartner').textContent = chat.participant1;
+                    chatPartner = chat.participant1;
                 }
+                document.getElementById('chatPartner').textContent = chatPartner;
             } catch (err) {
                 console.error("Error fetching chat partner:", err);
                 document.getElementById('chatPartner').textContent = "Unknown Partner";
@@ -287,7 +289,7 @@
                     throw new Error(`Failed to fetch messages: ${response.status} ${response.statusText}`);
                 }
                 const messages = await response.json();
-                console.log("Fetched messages:", messages); // Debug log
+                console.log("Fetched messages:", messages);
                 messages.forEach(message => displayMessage(message));
             } catch (err) {
                 console.error("Error fetching messages:", err);
@@ -307,9 +309,15 @@
             };
 
             ws.onmessage = function(event) {
-                console.log("Received WebSocket message:", event.data); // Debug log
+                console.log("Received WebSocket message:", event.data);
                 const message = JSON.parse(event.data);
                 if (message.type === "ping" || message.type === "pong") return;
+                if (message.type === "status") {
+                    if (message.sender === chatPartner) {
+                        document.getElementById('status').textContent = message.content.charAt(0).toUpperCase() + message.content.slice(1);
+                    }
+                    return;
+                }
                 displayMessage(message);
             };
 
@@ -323,13 +331,36 @@
             };
         }
 
+        function checkTokenExpiration() {
+            try {
+                const tokenData = JSON.parse(atob(token.split('.')[1]));
+                const exp = tokenData.exp * 1000; // Convert to milliseconds
+                if (Date.now() >= exp) {
+                    alert("Your session has expired. Please log in again.");
+                    localStorage.removeItem('token');
+                    window.location.href = "/";
+                    return true;
+                }
+                return false;
+            } catch (err) {
+                console.error("Error checking token expiration:", err);
+                alert("Invalid token. Please log in again.");
+                localStorage.removeItem('token');
+                window.location.href = "/";
+                return true;
+            }
+        }
+
         (async () => {
             try {
                 const tokenData = JSON.parse(atob(token.split('.')[1]));
                 username = tokenData.username;
+                if (checkTokenExpiration()) return;
                 await fetchChatPartner();
-                await fetchMessages(); // Fetch messages on page load
+                await fetchMessages();
                 connectWebSocket();
+                // Check token expiration every minute
+                setInterval(checkTokenExpiration, 60000);
             } catch (err) {
                 console.error("Error initializing chat:", err);
                 alert("Failed to initialize chat. Please try logging in again.");
@@ -342,7 +373,13 @@
             const fileInput = document.getElementById('file');
             const messageText = messageInput.value.trim();
 
-            if (!messageText && !fileInput.files.length) return;
+            // Check token expiration before sending
+            if (checkTokenExpiration()) return;
+
+            // Only proceed if there's a message or a file
+            if (!messageText && !fileInput.files.length) {
+                return;
+            }
 
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
@@ -366,7 +403,7 @@
 
             if (messageText) {
                 const message = {
-                    receiver: document.getElementById('chatPartner').textContent,
+                    receiver: chatPartner,
                     content: messageText,
                 };
 
@@ -383,7 +420,7 @@
         }
 
         function displayMessage(message) {
-            console.log("Displaying message:", message); // Debug log
+            console.log("Displaying message:", message);
             const chatWindow = document.getElementById('chatWindow');
             
             const timestampDiv = document.createElement('div');
