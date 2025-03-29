@@ -26,10 +26,11 @@ type Message struct {
 }
 
 type Client struct {
-    username string
-    chatID   int
-    conn     *websocket.Conn
-    send     chan Message
+    username      string
+    chatID        int
+    conn          *websocket.Conn
+    send          chan Message
+    lastMessageID int // Track the last message ID seen by the client
 }
 
 type Hub struct {
@@ -102,6 +103,8 @@ func (h *Hub) run() {
                 if client.chatID == message.ChatID {
                     select {
                     case client.send <- message:
+                        // Update the last message ID seen by the client
+                        client.lastMessageID = message.ID
                     default:
                         close(client.send)
                         delete(h.clients, client)
@@ -118,10 +121,8 @@ func (c *Client) readPump() {
         c.conn.Close()
     }()
 
-    // Set read deadline to prevent hanging connections
     c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
-    // Handle pong messages to reset the read deadline
     c.conn.SetPongHandler(func(string) error {
         c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
         return nil
@@ -142,18 +143,22 @@ func (c *Client) readPump() {
             continue
         }
 
+        // Ignore ping messages from the client
+        if msg.Type == "ping" {
+            continue
+        }
+
         msg.ChatID = c.chatID
         msg.Sender = c.username
         msg.Timestamp = time.Now()
         hub.broadcast <- msg
 
-        // Reset read deadline after a successful read
         c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
     }
 }
 
 func (c *Client) writePump() {
-    ticker := time.NewTicker(30 * time.Second) // Send ping every 30 seconds
+    ticker := time.NewTicker(15 * time.Second) // Send ping every 15 seconds
     defer func() {
         ticker.Stop()
         c.conn.Close()
@@ -180,7 +185,6 @@ func (c *Client) writePump() {
             }
 
         case <-ticker.C:
-            // Send a ping message to keep the connection alive
             if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
                 log.Printf("writePump error (Ping): %v", err)
                 return
@@ -258,12 +262,13 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    client := &Client{username: username, chatID: chatID, conn: conn, send: make(chan Message)}
+    client := &Client{username: username, chatID: chatID, conn: conn, send: make(chan Message), lastMessageID: 0}
     hub.register <- client
 
     go client.writePump()
     go client.readPump()
 
+    // Fetch all messages to determine the last message ID
     req, _ = http.NewRequest("GET", supabaseURL+"/rest/v1/messages?chat_id=eq."+chatIDStr+"&order=timestamp.asc", nil)
     req.Header.Set("apikey", supabaseKey)
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
@@ -276,9 +281,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
     var messages []Message
     json.NewDecoder(resp.Body).Decode(&messages)
-    for _, msg := range messages {
-        client.send <- msg
+    if len(messages) > 0 {
+        client.lastMessageID = messages[len(messages)-1].ID
     }
+
+    // Don’t send old messages on connect; they’ll be fetched separately by the client if needed
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
