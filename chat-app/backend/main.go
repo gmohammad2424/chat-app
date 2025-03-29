@@ -42,7 +42,7 @@ type Hub struct {
 var hub = &Hub{
     clients:    make(map[*Client]bool),
     broadcast:  make(chan Message),
-    register:   chan *Client,
+    register:   make(chan *Client),
     unregister: make(chan *Client),
 }
 
