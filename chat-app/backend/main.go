@@ -61,6 +61,26 @@ var (
     supabaseClient = &http.Client{}
 )
 
+// CORS middleware to allow requests from the frontend
+func corsMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Set CORS headers
+        w.Header().Set("Access-Control-Allow-Origin", "https://chat-frontend-7v8w.onrender.com")
+        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+        // Handle preflight OPTIONS request
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+
+        // Call the next handler
+        next.ServeHTTP(w, r)
+    })
+}
+
 func (h *Hub) run() {
     for {
         select {
@@ -467,16 +487,21 @@ func main() {
         supabaseClient.Do(req)
     }
 
-    http.HandleFunc("/ws", handleWebSocket)
-    http.HandleFunc("/login", handleLogin)
-    http.HandleFunc("/upload", handleFileUpload)
+    // Create a new ServeMux to apply middleware
+    mux := http.NewServeMux()
+    mux.HandleFunc("/ws", handleWebSocket)
+    mux.HandleFunc("/login", handleLogin)
+    mux.HandleFunc("/upload", handleFileUpload)
+
+    // Wrap the ServeMux with the CORS middleware
+    handler := corsMiddleware(mux)
 
     port := os.Getenv("PORT")
     if port == "" {
         port = "8080"
     }
     fmt.Printf("Server starting on :%s\n", port)
-    if err := http.ListenAndServe(":"+port, nil); err != nil {
+    if err := http.ListenAndServe(":"+port, handler); err != nil {
         log.Fatal("ListenAndServe: ", err)
     }
 }
