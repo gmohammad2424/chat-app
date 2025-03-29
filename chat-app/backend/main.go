@@ -8,7 +8,6 @@ import (
     "log"
     "net/http"
     "os"
-    "strings"
     "time"
 
     "github.com/dgrijalva/jwt-go"
