@@ -42,7 +42,7 @@ type Hub struct {
 var hub = &Hub{
     clients:    make(map[*Client]bool),
     broadcast:  make(chan Message),
-    register:   make(chan *Client),
+    register:   chan *Client,
     unregister: make(chan *Client),
 }
 
@@ -65,7 +65,7 @@ func corsMiddleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Access-Control-Allow-Origin", "https://chat-frontend-7v8w.onrender.com")
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        w.Header.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
         w.Header().Set("Access-Control-Allow-Credentials", "true")
 
         if r.Method == http.MethodOptions {
