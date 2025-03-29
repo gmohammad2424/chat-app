@@ -125,7 +125,7 @@
     <div class="chat-container">
         <div class="chat-header">
             <div>
-                <h3 id="chatPartner"></h3>
+                <h3 id="chatPartner">Loading...</h3>
                 <p>Online</p>
             </div>
             <div class="icons">
@@ -157,19 +157,26 @@
             window.location.href = "/";
         }
 
-        // Fetch the chat partner
         async function fetchChatPartner() {
-            const response = await fetch(`https://chat-backend-gxh8.onrender.com/chats?chat_id=${chatId}&token=${token}`);
-            const chat = await response.json();
-            if (chat.participant1 === username) {
-                document.getElementById('chatPartner').textContent = chat.participant2;
-            } else {
-                document.getElementById('chatPartner').textContent = chat.participant1;
+            try {
+                const response = await fetch(`https://chat-backend-gxh8.onrender.com/chats?chat_id=${chatId}&token=${token}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch chat: ${response.status} ${response.statusText}`);
+                }
+                const chat = await response.json();
+                if (chat.participant1 === username) {
+                    document.getElementById('chatPartner').textContent = chat.participant2;
+                } else {
+                    document.getElementById('chatPartner').textContent = chat.participant1;
+                }
+            } catch (err) {
+                console.error("Error fetching chat partner:", err);
+                document.getElementById('chatPartner').textContent = "Unknown Partner";
             }
         }
 
         function connectWebSocket() {
-            ws = new WebSocket(`wss://chat-backend.onrender.com/ws?token=${token}&chat_id=${chatId}`);
+            ws = new WebSocket(`wss://chat-backend-gxh8.onrender.com/ws?token=${token}&chat_id=${chatId}`);
 
             ws.onopen = function() {
                 console.log("Connected to WebSocket server");
@@ -192,10 +199,16 @@
 
         // Initial connection and fetch username
         (async () => {
-            const tokenData = JSON.parse(atob(token.split('.')[1]));
-            username = tokenData.username;
-            await fetchChatPartner();
-            connectWebSocket();
+            try {
+                const tokenData = JSON.parse(atob(token.split('.')[1]));
+                username = tokenData.username;
+                await fetchChatPartner();
+                connectWebSocket();
+            } catch (err) {
+                console.error("Error initializing chat:", err);
+                alert("Failed to initialize chat. Please try logging in again.");
+                window.location.href = "/";
+            }
         })();
 
         async function sendMessage() {
@@ -210,15 +223,19 @@
                 const formData = new FormData();
                 formData.append('file', file);
 
-                const response = await fetch(`https://chat-backend.onrender.com/upload?token=${token}&chat_id=${chatId}`, {
-                    method: 'POST',
-                    body: formData,
-                });
+                try {
+                    const response = await fetch(`https://chat-backend-gxh8.onrender.com/upload?token=${token}&chat_id=${chatId}`, {
+                        method: 'POST',
+                        body: formData,
+                    });
 
-                if (!response.ok) {
-                    alert("Error uploading file");
+                    if (!response.ok) {
+                        throw new Error("Error uploading file");
+                    }
+                    fileInput.value = '';
+                } catch (err) {
+                    alert("Error uploading file: " + err.message);
                 }
-                fileInput.value = '';
             }
 
             if (messageText) {
@@ -227,13 +244,15 @@
                     content: messageText,
                 };
 
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify(message));
-                    messageInput.value = '';
-                } else {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
                     console.log("WebSocket not open. Retrying...");
                     connectWebSocket();
+                    setTimeout(() => sendMessage(), 1000); // Retry after 1 second
+                    return;
                 }
+
+                ws.send(JSON.stringify(message));
+                messageInput.value = '';
             }
         }
 
