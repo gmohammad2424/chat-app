@@ -133,18 +133,7 @@ body.welcome-page {
     --main-color: #323232;
 }
 
-/* Switch Card */
-.switch {
-    transform: translateY(-200px);
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 30px;
-    width: 50px;
-    height: 20px;
-}
+
 
 .card-side::before {
     position: absolute;
@@ -320,9 +309,7 @@ body.welcome-page {
         font-size: 1em;
     }
 
-    .switch {
-        transform: translateY(-180px);
-    }
+   
 
     .flip-card__inner {
         width: 280px;
@@ -352,8 +339,6 @@ body.welcome-page {
         font-size: 0.9em;
     }
 
-    .switch {
-        transform: translateY(-160px);
     }
 
     .flip-card__inner {
