@@ -132,18 +132,34 @@ func (h *Hub) run() {
             }
         case message := <-h.broadcast:
             if message.Type != "status" && message.Content == "" && message.FileURL == "" {
+                log.Printf("Skipping empty message: %+v", message)
                 continue
             }
 
             if message.Type != "status" {
-                messageData, _ := json.Marshal(message)
-                req, _ := http.NewRequest("POST", supabaseURL+"/rest/v1/messages", bytes.NewBuffer(messageData))
+                messageData, err := json.Marshal(message)
+                if err != nil {
+                    log.Printf("Error marshaling message: %v", err)
+                    continue
+                }
+                req, err := http.NewRequest("POST", supabaseURL+"/rest/v1/messages", bytes.NewBuffer(messageData))
+                if err != nil {
+                    log.Printf("Error creating request to save message: %v", err)
+                    continue
+                }
                 req.Header.Set("Content-Type", "application/json")
                 req.Header.Set("apikey", supabaseKey)
                 req.Header.Set("Authorization", "Bearer "+supabaseKey)
-                _, err := supabaseClient.Do(req)
+                resp, err := supabaseClient.Do(req)
                 if err != nil {
-                    log.Printf("Error saving message: %v", err)
+                    log.Printf("Error saving message to Supabase: %v", err)
+                    continue
+                }
+                defer resp.Body.Close()
+                if resp.StatusCode != http.StatusCreated {
+                    body, _ := io.ReadAll(resp.Body)
+                    log.Printf("Supabase save message failed: Status=%d, Response=%s", resp.StatusCode, string(body))
+                    continue
                 }
             }
 
@@ -560,8 +576,17 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
     }
     defer file.Close()
 
-    fileName := fmt.Sprintf("%d-%s", time.Now().UnixNano(), strings.ReplaceAll(handler.Filename, " ", "_"))
+    fileName := fmt.Sprintf("%d-%s", time.Now().UnixNano(), handler.Filename)
+    fileName = strings.ReplaceAll(fileName, " ", "_")
     fileName = strings.ReplaceAll(fileName, "/", "_")
+    fileName = strings.ReplaceAll(fileName, "\\", "_")
+    fileName = strings.ReplaceAll(fileName, ":", "_")
+    fileName = strings.ReplaceAll(fileName, "*", "_")
+    fileName = strings.ReplaceAll(fileName, "?", "_")
+    fileName = strings.ReplaceAll(fileName, "\"", "_")
+    fileName = strings.ReplaceAll(fileName, "<", "_")
+    fileName = strings.ReplaceAll(fileName, ">", "_")
+    fileName = strings.ReplaceAll(fileName, "|", "_")
 
     fileData, err := io.ReadAll(file)
     if err != nil {
@@ -801,6 +826,13 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
     }
     defer resp.Body.Close()
 
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        log.Printf("Supabase fetch messages failed: Status=%d, Response=%s", resp.StatusCode, string(body))
+        http.Error(w, `{"error": "Error fetching messages: Supabase returned status `+fmt.Sprint(resp.StatusCode)+`"}`, http.StatusInternalServerError)
+        return
+    }
+
     var messages []Message
     if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
         log.Printf("Error decoding messages response: %v", err)
@@ -808,6 +840,7 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    log.Printf("Fetched %d messages for chat_id %s", len(messages), chatIDStr)
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(messages)
 }
