@@ -3,75 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - ChatApp</title>
+    <title>Welcome to ChatApp</title>
     <link rel="stylesheet" href="styles.css">
     <style>
-        body {
-            background: #333;
-            min-height: 100vh;
+        .welcome-container {
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
+            justify-content: center;
+            height: 100vh;
+            position: relative;
+            text-align: center;
         }
     </style>
 </head>
-<body>
-    <div class="wrapper">
-        <div class="switch">
-            <input type="checkbox" class="toggle" id="toggle">
-            <label class="slider" for="toggle"></label>
-            <div class="card-side"></div>
-        </div>
-        <div class="flip-card__inner">
-            <div class="flip-card__front">
-                <div class="title">Log in</div>
-                <form class="flip-card__form" id="login-form">
-                    <input class="flip-card__input" name="username" placeholder="Username" type="text" required>
-                    <input class="flip-card__input" name="password" placeholder="Password" type="password" required>
-                    <button class="button flip-card__btn" type="submit"><span>Login</span></button>
-                </form>
-            </div>
-            <div class="flip-card__back">
-                <div class="title">Sign up</div>
-                <form class="flip-card__form" id="signup-form">
-                    <input class="flip-card__input" name="username" placeholder="Username" type="text" required>
-                    <input class="flip-card__input" name="email" placeholder="Email" type="email" required>
-                    <input class="flip-card__input" name="password" placeholder="Password" type="password" required>
-                    <button class="button flip-card__btn" type="submit"><span>Sign Up</span></button>
-                </form>
+<body class="welcome-page">
+    <div class="welcome-container">
+        <div class="box">
+            <div>
+                <span style="--i:1;"></span>
+                <span style="--i:2;"></span>
+                <span style="--i:3;"></span>
+                <span style="--i:4;"></span>
+                <span style="--i:5;"></span>
+                <span style="--i:6;"></span>
+                <span style="--i:7;"></span>
+                <span style="--i:8;"></span>
+                <span style="--i:9;"></span>
+                <span style="--i:10;"></span>
+                <span style="--i:11;"></span>
+                <span style="--i:12;"></span>
             </div>
         </div>
+        <a href="login.html" class="button"><span>Go to Login</span></a>
     </div>
-
-    <script>
-        const backendUrl = 'https://chat-backend.onrender.com'; // Replace with your backend URL
-
-        // Handle Login Form Submission
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const username = formData.get('username');
-            const password = formData.get('password');
-
-            try {
-                const response = await fetch(`${backendUrl}/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
-                });
-                const data = await response.json();
-                if (data.token) {
-                    localStorage.setItem('token', data.token);
-                    localStorage.setItem('chat_id', data.chat_id);
-                    window.location.href = 'chat.html';
-                } else {
-                    alert(data.message || 'Login failed');
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('An error occurred during login');
-            }
-        });
-
-        // Handle Signup Form Submission
-        document.getElementById('signup-form').addEventListener('submit', async (e) =>
+</body>
+</html>
