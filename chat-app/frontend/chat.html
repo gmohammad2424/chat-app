@@ -431,7 +431,16 @@
                     });
 
                     if (!response.ok) {
-                        throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+                        let errorMessage = `Upload failed: ${response.status} ${response.statusText}`;
+                        try {
+                            const errorData = await response.json();
+                            if (errorData.error) {
+                                errorMessage = errorData.error;
+                            }
+                        } catch (e) {
+                            console.error("Error parsing error response:", e);
+                        }
+                        throw new Error(errorMessage);
                     }
 
                     const result = await response.json();
