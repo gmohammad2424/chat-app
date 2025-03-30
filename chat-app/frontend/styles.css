@@ -8,6 +8,15 @@
 }
 
 /* Welcome Page Styles */
+body.welcome-page {
+    background: #333;
+    overflow: hidden;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
 .box {
     position: relative;
     width: 100%;
@@ -293,4 +302,68 @@
 }
 
 /* Responsive Adjustments */
-@media (max-width:
+@media (max-width: 768px) {
+    .box div span:before {
+        font-size: 2.5em;
+        height: 60px;
+    }
+
+    .box {
+        height: 250px;
+    }
+
+    .button {
+        padding: 12px 20px;
+        font-size: 1em;
+    }
+
+    .switch {
+        transform: translateY(-180px);
+    }
+
+    .flip-card__inner {
+        width: 280px;
+        height: 330px;
+    }
+
+    .flip-card__input {
+        width: 230px;
+        height: 38px;
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 480px) {
+    .box div span:before {
+        font-size: 1.8em;
+        height: 50px;
+    }
+
+    .box {
+        height: 200px;
+    }
+
+    .button {
+        padding: 10px 15px;
+        font-size: 0.9em;
+    }
+
+    .switch {
+        transform: translateY(-160px);
+    }
+
+    .flip-card__inner {
+        width: 260px;
+        height: 310px;
+    }
+
+    .flip-card__input {
+        width: 210px;
+        height: 36px;
+        font-size: 13px;
+    }
+
+    .title {
+        font-size: 22px;
+    }
+}
