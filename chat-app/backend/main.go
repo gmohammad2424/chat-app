@@ -64,7 +64,9 @@ var (
     supabaseURL    = os.Getenv("SUPABASE_URL")
     supabaseKey    = os.Getenv("SUPABASE_KEY")
     jwtSecret      = []byte(os.Getenv("JWT_SECRET"))
-    supabaseClient = &http.Client{}
+    supabaseClient = &http.Client{
+        Timeout: 10 * time.Second, // Add timeout to prevent hanging
+    }
 )
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -136,39 +138,44 @@ func (h *Hub) run() {
                 continue
             }
 
+            // Attempt to save the message to Supabase, but don't block the broadcast
             if message.Type != "status" {
                 messageData, err := json.Marshal(message)
                 if err != nil {
                     log.Printf("Error marshaling message: %v", err)
-                    continue
-                }
-                req, err := http.NewRequest("POST", supabaseURL+"/rest/v1/messages", bytes.NewBuffer(messageData))
-                if err != nil {
-                    log.Printf("Error creating request to save message: %v", err)
-                    continue
-                }
-                req.Header.Set("Content-Type", "application/json")
-                req.Header.Set("apikey", supabaseKey)
-                req.Header.Set("Authorization", "Bearer "+supabaseKey)
-                resp, err := supabaseClient.Do(req)
-                if err != nil {
-                    log.Printf("Error saving message to Supabase: %v", err)
-                    continue
-                }
-                defer resp.Body.Close()
-                if resp.StatusCode != http.StatusCreated {
-                    body, _ := io.ReadAll(resp.Body)
-                    log.Printf("Supabase save message failed: Status=%d, Response=%s", resp.StatusCode, string(body))
-                    continue
+                } else {
+                    req, err := http.NewRequest("POST", supabaseURL+"/rest/v1/messages", bytes.NewBuffer(messageData))
+                    if err != nil {
+                        log.Printf("Error creating request to save message: %v", err)
+                    } else {
+                        req.Header.Set("Content-Type", "application/json")
+                        req.Header.Set("apikey", supabaseKey)
+                        req.Header.Set("Authorization", "Bearer "+supabaseKey)
+                        resp, err := supabaseClient.Do(req)
+                        if err != nil {
+                            log.Printf("Error saving message to Supabase: %v", err)
+                        } else {
+                            defer resp.Body.Close()
+                            if resp.StatusCode != http.StatusCreated {
+                                body, _ := io.ReadAll(resp.Body)
+                                log.Printf("Supabase save message failed: Status=%d, Response=%s", resp.StatusCode, string(body))
+                            } else {
+                                log.Printf("Successfully saved message to Supabase: %+v", message)
+                            }
+                        }
+                    }
                 }
             }
 
+            // Broadcast the message to clients regardless of whether the save succeeded
+            log.Printf("Broadcasting message: %+v", message)
             for client := range h.clients {
                 if client.chatID == message.ChatID {
                     select {
                     case client.send <- message:
                         client.lastMessageID = message.ID
                     default:
+                        log.Printf("Failed to send message to client %s in chat %d, closing connection", client.username, client.chatID)
                         close(client.send)
                         delete(h.clients, client)
                     }
@@ -563,7 +570,9 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 
     err = r.ParseMultipartForm(10 << 20)
     if err != nil {
-        log.Printf("Error parsing multipart form: %v", err)
+        log
+
+.Printf("Error parsing multipart form: %v", err)
         http.Error(w, `{"error": "Error parsing file: `+err.Error()+`"}`, http.StatusBadRequest)
         return
     }
