@@ -89,6 +89,12 @@
             text-align: center;
             margin: 5px 0;
         }
+        .status {
+            font-size: 10px;
+            color: #666;
+            margin-top: 5px;
+            text-align: right;
+        }
         .chat-input {
             display: flex;
             align-items: center;
@@ -207,6 +213,13 @@
             border-radius: 10px;
             margin-top: 5px;
         }
+        .uploading {
+            opacity: 0.5;
+        }
+        .error {
+            color: red;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -257,6 +270,7 @@
         const token = localStorage.getItem('token');
         let username;
         let chatPartner;
+        let messageCounter = 0; // To assign unique IDs to messages for tracking
 
         if (!chatId || !token) {
             alert("Please log in to access the chat");
@@ -290,7 +304,7 @@
                 }
                 const messages = await response.json();
                 console.log("Fetched messages:", messages);
-                messages.forEach(message => displayMessage(message));
+                messages.forEach(message => displayMessage(message, true));
             } catch (err) {
                 console.error("Error fetching messages:", err);
             }
@@ -318,7 +332,17 @@
                     }
                     return;
                 }
-                displayMessage(message);
+                // Update status to "Delivered" for matching outgoing messages
+                const existingMessage = document.querySelector(`[data-local-id="${message.local_id}"]`);
+                if (existingMessage && message.sender === username) {
+                    const statusDiv = existingMessage.querySelector('.status');
+                    if (statusDiv) {
+                        statusDiv.textContent = "Delivered";
+                    }
+                    existingMessage.classList.remove('uploading');
+                    return;
+                }
+                displayMessage(message, true);
             };
 
             ws.onclose = function() {
@@ -334,7 +358,7 @@
         function checkTokenExpiration() {
             try {
                 const tokenData = JSON.parse(atob(token.split('.')[1]));
-                const exp = tokenData.exp * 1000; // Convert to milliseconds
+                const exp = tokenData.exp * 1000;
                 if (Date.now() >= exp) {
                     alert("Your session has expired. Please log in again.");
                     localStorage.removeItem('token');
@@ -359,7 +383,6 @@
                 await fetchChatPartner();
                 await fetchMessages();
                 connectWebSocket();
-                // Check token expiration every minute
                 setInterval(checkTokenExpiration, 60000);
             } catch (err) {
                 console.error("Error initializing chat:", err);
@@ -373,16 +396,31 @@
             const fileInput = document.getElementById('file');
             const messageText = messageInput.value.trim();
 
-            // Check token expiration before sending
             if (checkTokenExpiration()) return;
 
-            // Only proceed if there's a message or a file
             if (!messageText && !fileInput.files.length) {
                 return;
             }
 
+            const localMessageId = `msg-${messageCounter++}`; // Unique ID for tracking
+
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
+                const fileExt = file.name.split('.').pop().toLowerCase();
+                const isImage = ['jpg', 'jpeg', 'png', 'gif'].includes(fileExt);
+                const isVideo = ['mp4', 'webm'].includes(fileExt);
+
+                // Display the file locally as "uploading"
+                const message = {
+                    sender: username,
+                    content: "Uploading file...",
+                    file_url: isImage || isVideo ? URL.createObjectURL(file) : null,
+                    timestamp: new Date().toISOString(),
+                    local_id: localMessageId,
+                    status: "Sending..."
+                };
+                displayMessage(message, false);
+
                 const formData = new FormData();
                 formData.append('file', file);
 
@@ -393,11 +431,27 @@
                     });
 
                     if (!response.ok) {
-                        throw new Error("Error uploading file");
+                        throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
                     }
+
+                    const result = await response.json();
                     fileInput.value = '';
                 } catch (err) {
-                    alert("Error uploading file: " + err.message);
+                    console.error("Upload error:", err);
+                    const errorMessage = {
+                        sender: username,
+                        content: `Failed to upload file: ${err.message}`,
+                        timestamp: new Date().toISOString(),
+                        local_id: localMessageId,
+                        status: "Failed",
+                        error: true
+                    };
+                    const existingMessage = document.querySelector(`[data-local-id="${localMessageId}"]`);
+                    if (existingMessage) {
+                        existingMessage.remove();
+                    }
+                    displayMessage(errorMessage, false);
+                    return;
                 }
             }
 
@@ -405,7 +459,18 @@
                 const message = {
                     receiver: chatPartner,
                     content: messageText,
+                    local_id: localMessageId,
                 };
+
+                // Display the text message locally
+                const localMessage = {
+                    sender: username,
+                    content: messageText,
+                    timestamp: new Date().toISOString(),
+                    local_id: localMessageId,
+                    status: "Sending..."
+                };
+                displayMessage(localMessage, false);
 
                 if (!ws || ws.readyState !== WebSocket.OPEN) {
                     console.log("WebSocket not open. Retrying...");
@@ -419,7 +484,7 @@
             }
         }
 
-        function displayMessage(message) {
+        function displayMessage(message, isFromServer) {
             console.log("Displaying message:", message);
             const chatWindow = document.getElementById('chatWindow');
             
@@ -440,6 +505,15 @@
                 messageBubble.classList.add('outgoing');
             } else {
                 messageBubble.classList.add('incoming');
+            }
+            if (message.local_id) {
+                messageBubble.setAttribute('data-local-id', message.local_id);
+            }
+            if (!isFromServer) {
+                messageBubble.classList.add('uploading');
+            }
+            if (message.error) {
+                messageBubble.classList.add('error');
             }
 
             if (message.content) {
@@ -466,6 +540,13 @@
                     link.target = "_blank";
                     messageBubble.appendChild(link);
                 }
+            }
+
+            if (message.status) {
+                const statusDiv = document.createElement('div');
+                statusDiv.classList.add('status');
+                statusDiv.textContent = message.status;
+                messageBubble.appendChild(statusDiv);
             }
 
             chatWindow.appendChild(timestampDiv);
