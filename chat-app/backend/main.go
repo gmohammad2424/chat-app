@@ -642,7 +642,7 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
     hub.broadcast <- message
 
     w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(map[string]string{"message": "File uploaded successfully", "file_url: fileURL})
+    json.NewEncoder(w).Encode(map[string]string{"message": "File uploaded successfully", "file_url": fileURL})
 }
 
 func handleGetChat(w http.ResponseWriter, r *http.Request) {
@@ -876,6 +876,7 @@ func main() {
             continue
         }
         req.Header.Set("Content-Type", "application/json")
+        req.Header.Set("apikey", supabaseKey)
         req.Header.Set("Authorization", "Bearer "+supabaseKey)
         _, err = supabaseClient.Do(req)
         if err != nil {
