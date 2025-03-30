@@ -266,13 +266,23 @@
     </div>
 
     <script>
+        // Debounce function to prevent multiple rapid calls
+        function debounce(func, wait) {
+            let timeout;
+            return function (...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
+        }
+
         let ws;
         const urlParams = new URLSearchParams(window.location.search);
         const chatId = urlParams.get('chat_id');
         const token = localStorage.getItem('token');
         let username;
         let chatPartner;
-        let messageCounter = 0; // To assign unique IDs to messages for tracking
+        let messageCounter = 0;
+        let isSendingFile = false; // Flag to prevent duplicate file sends
 
         if (!chatId || !token) {
             alert("Please log in to access the chat");
@@ -313,6 +323,11 @@
         }
 
         function connectWebSocket() {
+            // Close existing WebSocket connection if it exists
+            if (ws && ws.readyState !== WebSocket.CLOSED) {
+                ws.close();
+            }
+
             ws = new WebSocket(`wss://chat-backend-gxh8.onrender.com/ws?token=${token}&chat_id=${chatId}`);
 
             ws.onopen = function() {
@@ -334,17 +349,16 @@
                     }
                     return;
                 }
-                // Update status to "Delivered" for matching outgoing messages
                 const existingMessage = document.querySelector(`[data-local-id="${message.local_id}"]`);
                 if (existingMessage && message.sender === username) {
                     const statusDiv = existingMessage.querySelector('.status');
                     if (statusDiv) {
                         statusDiv.textContent = "Delivered";
                     }
-                    if (message.image_url) {
-                        const img = existingMessage.querySelector('.media');
-                        if (img) {
-                            img.src = message.image_url;
+                    if (message.file_url) {
+                        const media = existingMessage.querySelector('.media');
+                        if (media) {
+                            media.src = message.file_url;
                         }
                     }
                     existingMessage.classList.remove('uploading');
@@ -367,7 +381,9 @@
             try {
                 const tokenData = JSON.parse(atob(token.split('.')[1]));
                 const exp = tokenData.exp * 1000;
-                if (Date.now() >= exp) {
+                const now = Date.now();
+                console.log("Token expiration check:", { exp, now, isExpired: now >= exp });
+                if (now >= exp) {
                     alert("Your session has expired. Please log in again.");
                     localStorage.removeItem('token');
                     window.location.href = "login.html";
@@ -410,7 +426,7 @@
                 return;
             }
 
-            const localMessageId = `msg-${messageCounter++}`; // Unique ID for tracking
+            const localMessageId = `msg-${messageCounter++}`;
 
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
@@ -418,26 +434,23 @@
                 const isImage = ['jpg', 'jpeg', 'png', 'gif'].includes(fileExt);
                 const isVideo = ['mp4', 'webm'].includes(fileExt);
 
-                // Display the file preview immediately
                 const message = {
                     sender: username,
                     receiver: chatPartner,
                     content: "Uploading file...",
-                    image_url: isImage || isVideo ? URL.createObjectURL(file) : null,
+                    file_url: isImage || isVideo ? URL.createObjectURL(file) : null,
                     timestamp: new Date().toISOString(),
                     local_id: localMessageId,
-                    tempId: messageCounter,
                     status: "Sending..."
                 };
                 displayMessage(message, false);
 
                 const formData = new FormData();
                 formData.append('file', file);
-                formData.append('token', token);
-                formData.append('chat_id', chatId);
 
                 try {
-                    const response = await fetch(`https://chat-backend-gxh8.onrender.com/upload`, {
+                    // Include token and chat_id in the URL query string
+                    const response = await fetch(`https://chat-backend-gxh8.onrender.com/upload?token=${token}&chat_id=${chatId}`, {
                         method: 'POST',
                         body: formData,
                     });
@@ -461,14 +474,13 @@
                     }
 
                     const result = await response.json();
-                    const imageMessage = {
+                    const fileMessage = {
                         receiver: chatPartner,
-                        content: "",
-                        image_url: result.image_url,
-                        tempId: message.tempId,
+                        content: "Sent a file",
+                        file_url: result.file_url,
                         local_id: localMessageId,
                     };
-                    ws.send(JSON.stringify(imageMessage));
+                    ws.send(JSON.stringify(fileMessage));
                     fileInput.value = '';
                 } catch (err) {
                     console.error("Upload error:", err);
@@ -494,11 +506,10 @@
                 const message = {
                     receiver: chatPartner,
                     content: messageText,
-                    image_url: "",
+                    file_url: "",
                     local_id: localMessageId,
                 };
 
-                // Display the text message locally
                 const localMessage = {
                     sender: username,
                     receiver: chatPartner,
@@ -527,7 +538,7 @@
             
             const timestampDiv = document.createElement('div');
             timestampDiv.classList.add('timestamp');
-            timestampDiv.textContent = new Date(message.timestamp || message.created_at).toLocaleString('en-US', {
+            timestampDiv.textContent = new Date(message.timestamp).toLocaleString('en-US', {
                 month: 'short',
                 day: 'numeric',
                 year: 'numeric',
@@ -557,23 +568,23 @@
                 messageBubble.textContent = message.content;
             }
 
-            if (message.image_url) {
-                const fileExt = message.image_url.split('.').pop().toLowerCase();
+            if (message.file_url) {
+                const fileExt = message.file_url.split('.').pop().toLowerCase();
                 if (['jpg', 'jpeg', 'png', 'gif'].includes(fileExt)) {
                     const img = document.createElement('img');
-                    img.src = message.image_url;
+                    img.src = message.file_url;
                     img.classList.add('media');
-                    img.onclick = () => showFullImage(message.image_url);
+                    img.onclick = () => showFullImage(message.file_url);
                     messageBubble.appendChild(img);
                 } else if (['mp4', 'webm'].includes(fileExt)) {
                     const video = document.createElement('video');
-                    video.src = message.image_url;
+                    video.src = message.file_url;
                     video.controls = true;
                     video.classList.add('media');
                     messageBubble.appendChild(video);
                 } else {
                     const link = document.createElement('a');
-                    link.href = message.image_url;
+                    link.href = message.file_url;
                     link.textContent = "Download File";
                     link.target = "_blank";
                     messageBubble.appendChild(link);
@@ -610,17 +621,22 @@
             document.body.appendChild(fullImage);
         }
 
+        // Update event listeners with debounce
         document.getElementById('messageInput').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
-                sendMessage();
+                send TDSendMessage();
             }
         });
 
-        document.getElementById('file').addEventListener('change', () => {
-            if (document.getElementById('file').files.length > 0) {
-                sendMessage();
+        document.getElementById('file').addEventListener('change', debounce(() => {
+            if (document.getElementById('file').files.length > 0 && !isSendingFile) {
+                isSendingFile = true;
+                sendMessage().finally(() => {
+                    isSendingFile = false;
+                    document.getElementById('file').value = ''; // Clear the file input
+                });
             }
-        });
+        }, 500));
     </script>
 </body>
 </html>
