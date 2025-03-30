@@ -76,7 +76,7 @@
             display: inline-block;
             width: 30px;
             height: 30px;
-            background: url('https://via.placeholder.com/30') no-repeat center;
+            background: url('https://placehold.co/30x30') no-repeat center;
             background-size: cover;
             border-radius: 50%;
             position: absolute;
@@ -274,6 +274,7 @@
         let chatPartner;
         let messageCounter = 0;
         let isSendingFile = false;
+        const displayedMessageIds = new Set(); // Track displayed message IDs
 
         if (!chatId || !token) {
             alert("Please log in to access the chat");
@@ -317,7 +318,12 @@
                 }
                 const messages = await response.json();
                 console.log("Fetched messages:", messages);
-                messages.forEach(message => displayMessage(message, true));
+                messages.forEach(message => {
+                    if (!displayedMessageIds.has(message.id)) {
+                        displayMessage(message, true);
+                        displayedMessageIds.add(message.id);
+                    }
+                });
             } catch (err) {
                 console.error("Error fetching messages:", err);
             }
@@ -349,7 +355,9 @@
                     }
                     return;
                 }
-                const existingMessage = document.querySelector(`[data-local-id="${message.local_id}"]`);
+
+                // Check if this is an update to an existing message (same local_id and sender)
+                const existingMessage = message.local_id ? document.querySelector(`[data-local-id="${message.local_id}"]`) : null;
                 if (existingMessage && message.sender === username) {
                     const statusDiv = existingMessage.querySelector('.status');
                     if (statusDiv) {
@@ -362,9 +370,18 @@
                         }
                     }
                     existingMessage.classList.remove('uploading');
+                    // Add the message ID to displayedMessageIds to prevent duplication
+                    if (message.id && !displayedMessageIds.has(message.id)) {
+                        displayedMessageIds.add(message.id);
+                    }
                     return;
                 }
-                displayMessage(message, true);
+
+                // Display new messages only if not already displayed
+                if (message.id && !displayedMessageIds.has(message.id)) {
+                    displayMessage(message, true);
+                    displayedMessageIds.add(message.id);
+                }
             };
 
             ws.onclose = function() {
@@ -426,7 +443,8 @@
                 return;
             }
 
-            const localMessageId = `msg-${messageCounter++}`;
+            // Generate a unique local message ID
+            const localMessageId = `msg-${Date.now()}-${messageCounter++}`;
             const currentTimestamp = new Date().toISOString();
             console.log("Sending message with timestamp:", currentTimestamp);
 
@@ -536,6 +554,7 @@
                 hour12: true
             });
 
+        
             const messageBubble = document.createElement('div');
             messageBubble.classList.add('chat-bubble');
             if (message.sender === username) {
