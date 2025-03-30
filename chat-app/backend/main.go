@@ -9,6 +9,7 @@ import (
     "net/http"
     "os"
     "time"
+    "strings"
 
     "github.com/dgrijalva/jwt-go"
     "github.com/gorilla/websocket"
@@ -23,7 +24,7 @@ type Message struct {
     Content   string    `json:"content"`
     FileURL   string    `json:"file_url"`
     Timestamp time.Time `json:"timestamp"`
-    Type      string    `json:"type,omitempty"` // Added to handle ping/status messages
+    Type      string    `json:"type,omitempty"`
 }
 
 type Client struct {
@@ -39,7 +40,7 @@ type Hub struct {
     broadcast      chan Message
     register       chan *Client
     unregister     chan *Client
-    connectedUsers map[string][]int // Track connected users by username and chat IDs
+    connectedUsers map[string][]int
 }
 
 var hub = &Hub{
@@ -69,7 +70,7 @@ func corsMiddleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Access-Control-Allow-Origin", "https://chat-frontend-7v8w.onrender.com")
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        w.Header.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
         w.Header().Set("Access-Control-Allow-Credentials", "true")
 
         if r.Method == http.MethodOptions {
@@ -86,9 +87,7 @@ func (h *Hub) run() {
         select {
         case client := <-h.register:
             h.clients[client] = true
-            // Add user to connectedUsers
             h.connectedUsers[client.username] = append(h.connectedUsers[client.username], client.chatID)
-            // Broadcast status update to other users in the same chat
             for c := range h.clients {
                 if c.chatID == client.chatID && c.username != client.username {
                     statusMessage := Message{
@@ -103,7 +102,6 @@ func (h *Hub) run() {
             }
         case client := <-h.unregister:
             if _, ok := h.clients[client]; ok {
-                // Remove user from connectedUsers
                 chatIDs := h.connectedUsers[client.username]
                 updatedChatIDs := []int{}
                 for _, id := range chatIDs {
@@ -116,7 +114,6 @@ func (h *Hub) run() {
                 } else {
                     delete(h.connectedUsers, client.username)
                 }
-                // Broadcast status update to other users in the same chat
                 for c := range h.clients {
                     if c.chatID == client.chatID && c.username != client.username {
                         statusMessage := Message{
@@ -133,12 +130,10 @@ func (h *Hub) run() {
                 delete(h.clients, client)
             }
         case message := <-h.broadcast:
-            // Skip saving empty messages with no file URL
             if message.Type != "status" && message.Content == "" && message.FileURL == "" {
                 continue
             }
 
-            // Only save chat messages to the database, not status messages
             if message.Type != "status" {
                 messageData, _ := json.Marshal(message)
                 req, _ := http.NewRequest("POST", supabaseURL+"/rest/v1/messages", bytes.NewBuffer(messageData))
@@ -194,7 +189,6 @@ func (c *Client) readPump() {
             continue
         }
 
-        // Ignore ping messages from the client
         if msg.Type == "ping" {
             continue
         }
@@ -335,7 +329,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         client.lastMessageID = messages[len(messages)-1].ID
     }
 
-    // Send initial status of the other user
     partner := chats[0].Participant1
     if partner == username {
         partner = chats[0].Participant2
@@ -482,11 +475,17 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    req, _ := http.NewRequest("GET", supabaseURL+"/rest/v1/chats?id=eq."+chatIDStr, nil)
+    req, err := http.NewRequest("GET", supabaseURL+"/rest/v1/chats?id=eq."+chatIDStr, nil)
+    if err != nil {
+        log.Printf("Error creating request to verify chat: %v", err)
+        http.Error(w, "Error verifying chat", http.StatusInternalServerError)
+        return
+    }
     req.Header.Set("apikey", supabaseKey)
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
     if err != nil {
+        log.Printf("Error verifying chat: %v", err)
         http.Error(w, "Error verifying chat", http.StatusInternalServerError)
         return
     }
@@ -496,7 +495,11 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
         Participant1 string `json:"participant1"`
         Participant2 string `json:"participant2"`
     }
-    json.NewDecoder(resp.Body).Decode(&chats)
+    if err := json.NewDecoder(resp.Body).Decode(&chats); err != nil {
+        log.Printf("Error decoding chat response: %v", err)
+        http.Error(w, "Error verifying chat", http.StatusInternalServerError)
+        return
+    }
     if len(chats) == 0 || (chats[0].Participant1 != username && chats[0].Participant2 != username) {
         http.Error(w, "User not authorized for this chat", http.StatusForbidden)
         return
@@ -509,36 +512,57 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 
     err = r.ParseMultipartForm(10 << 20)
     if err != nil {
+        log.Printf("Error parsing multipart form: %v", err)
         http.Error(w, "Error parsing file", http.StatusBadRequest)
         return
     }
 
     file, handler, err := r.FormFile("file")
     if err != nil {
+        log.Printf("Error retrieving file from form: %v", err)
         http.Error(w, "Error retrieving file", http.StatusBadRequest)
         return
     }
     defer file.Close()
 
-    fileName := fmt.Sprintf("%d-%s", time.Now().UnixNano(), handler.Filename)
+    // Sanitize file name to avoid invalid characters
+    fileName := fmt.Sprintf("%d-%s", time.Now().UnixNano(), strings.ReplaceAll(handler.Filename, " ", "_"))
+    fileName = strings.ReplaceAll(fileName, "/", "_") // Replace slashes to avoid path issues
+
     fileData, err := io.ReadAll(file)
     if err != nil {
+        log.Printf("Error reading file data: %v", err)
         http.Error(w, "Error reading file", http.StatusInternalServerError)
         return
     }
 
-    req, _ = http.NewRequest("POST", supabaseURL+"/storage/v1/object/chat-files/"+fileName, bytes.NewReader(fileData))
+    // Validate Supabase URL and key
+    if supabaseURL == "" || supabaseKey == "" {
+        log.Printf("Supabase URL or Key is missing: URL=%s, Key=%s", supabaseURL, supabaseKey)
+        http.Error(w, "Server configuration error", http.StatusInternalServerError)
+        return
+    }
+
+    req, err = http.NewRequest("POST", supabaseURL+"/storage/v1/object/chat-files/"+fileName, bytes.NewReader(fileData))
+    if err != nil {
+        log.Printf("Error creating Supabase upload request: %v", err)
+        http.Error(w, "Error uploading file", http.StatusInternalServerError)
+        return
+    }
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
     req.Header.Set("Content-Type", handler.Header.Get("Content-Type"))
     resp, err = supabaseClient.Do(req)
     if err != nil {
-        http.Error(w, "Error uploading file", http.StatusInternalServerError)
+        log.Printf("Error uploading file to Supabase: %v", err)
+        http.Error(w, "Error uploading file to storage: "+err.Error(), http.StatusInternalServerError)
         return
     }
     defer resp.Body.Close()
 
     if resp.StatusCode != http.StatusOK {
-        http.Error(w, "Error uploading file to storage", http.StatusInternalServerError)
+        body, _ := io.ReadAll(resp.Body)
+        log.Printf("Supabase upload failed: Status=%d, Response=%s", resp.StatusCode, string(body))
+        http.Error(w, fmt.Sprintf("Error uploading file to storage: Status %d", resp.StatusCode), http.StatusInternalServerError)
         return
     }
 
@@ -548,14 +572,14 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
         ChatID:    chatID,
         Sender:    username,
         Receiver:  receiver,
-        Content:   "Sent a file", // Add default content for file messages
+        Content:   "Sent a file",
         FileURL:   fileURL,
         Timestamp: time.Now(),
     }
     hub.broadcast <- message
 
     w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(map[string]string{"message": "File uploaded successfully"})
+    json.NewEncoder(w).Encode(map[string]string{"message": "File uploaded successfully", "file_url": fileURL})
 }
 
 func handleGetChat(w http.ResponseWriter, r *http.Request) {
