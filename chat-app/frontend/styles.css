@@ -43,7 +43,7 @@ body {
 }
 
 .box div span:before {
-    content: 'Welcome to ChatApp';
+    content: 'Welcome';
     position: absolute;
     width: 100%;
     color: #fffe;
