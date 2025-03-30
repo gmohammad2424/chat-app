@@ -17,7 +17,7 @@ import (
 )
 
 type Message struct {
-    ID        int       `json:"id,omitempty"` // Changed to omitempty to allow insertion without ID
+    ID        int       `json:"id,omitempty"`
     ChatID    int       `json:"chat_id"`
     Sender    string    `json:"sender"`
     Receiver  string    `json:"receiver"`
@@ -98,7 +98,7 @@ func (h *Hub) run() {
                         Sender:    client.username,
                         Type:      "status",
                         Content:   "online",
-                        Timestamp: time.Now(),
+                        Timestamp: time.Now().UTC(),
                     }
                     c.send <- statusMessage
                 }
@@ -124,7 +124,7 @@ func (h *Hub) run() {
                             Sender:    client.username,
                             Type:      "status",
                             Content:   "offline",
-                            Timestamp: time.Now(),
+                            Timestamp: time.Now().UTC(),
                         }
                         c.send <- statusMessage
                     }
@@ -137,6 +137,11 @@ func (h *Hub) run() {
                 log.Printf("Skipping empty message: %+v", message)
                 continue
             }
+
+            if message.Type != "status" && message.Timestamp.IsZero() {
+                message.Timestamp = time.Now().UTC()
+            }
+            log.Printf("Saving message with timestamp: %s", message.Timestamp.Format(time.RFC3339))
 
             if message.Type != "status" {
                 messageData, err := json.Marshal(message)
@@ -152,7 +157,7 @@ func (h *Hub) run() {
                 req.Header.Set("Content-Type", "application/json")
                 req.Header.Set("apikey", supabaseKey)
                 req.Header.Set("Authorization", "Bearer "+supabaseKey)
-                req.Header.Set("Prefer", "return=representation") // Ensure the inserted row is returned
+                req.Header.Set("Prefer", "return=representation")
                 resp, err := supabaseClient.Do(req)
                 if err != nil {
                     log.Printf("Error saving message to Supabase: %v", err)
@@ -166,19 +171,19 @@ func (h *Hub) run() {
                     continue
                 }
 
-                // Decode the response to get the inserted message with ID
                 var savedMessages []Message
                 if err := json.NewDecoder(resp.Body).Decode(&savedMessages); err != nil {
                     log.Printf("Error decoding saved message: %v", err)
                     continue
                 }
                 if len(savedMessages) > 0 {
-                    message.ID = savedMessages[0].ID // Update message with the returned ID
+                    message.ID = savedMessages[0].ID
+                    message.Timestamp = savedMessages[0].Timestamp
                     log.Printf("Successfully saved message to Supabase with ID %d: %+v", message.ID, message)
                 }
             }
 
-            log.Printf("Broadcasting message: %+v", message)
+            log.Printf("Broadcasting message with timestamp: %s", message.Timestamp.Format(time.RFC3339))
             for client := range h.clients {
                 if client.chatID == message.ChatID {
                     select {
@@ -231,7 +236,7 @@ func (c *Client) readPump() {
 
         msg.ChatID = c.chatID
         msg.Sender = c.username
-        msg.Timestamp = time.Now()
+        msg.Timestamp = time.Now().UTC()
         hub.broadcast <- msg
 
         c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -359,7 +364,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
     go client.writePump()
     go client.readPump()
 
-    // Fetch and send previous messages
     req, err = http.NewRequest("GET", supabaseURL+"/rest/v1/messages?chat_id=eq."+chatIDStr+"&order=timestamp.asc", nil)
     if err != nil {
         log.Printf("Error creating request to fetch messages: %v", err)
@@ -404,7 +408,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         Sender:    partner,
         Type:      "status",
         Content:   status,
-        Timestamp: time.Now(),
+        Timestamp: time.Now().UTC(),
     }
     client.send <- statusMessage
 }
@@ -658,7 +662,7 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
         Receiver:  receiver,
         Content:   "Sent a file",
         FileURL:   fileURL,
-        Timestamp: time.Now(),
+        Timestamp: time.Now().UTC(),
     }
     hub.broadcast <- message
 
