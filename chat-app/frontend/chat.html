@@ -104,7 +104,7 @@
         }
         .messageBox {
             width: fit-content;
-            height: 40px;
+            height: 50px; /* Increased height for a larger message bar */
             display: flex;
             align-items: center;
             justify-content: center;
@@ -173,13 +173,14 @@
             transition: all 0.3s;
         }
         #messageInput {
-            width: 200px;
+            width: 300px; /* Increased width for a larger input field */
             height: 100%;
             background-color: transparent;
             outline: none;
             border: none;
             padding-left: 10px;
             color: white;
+            font-size: 16px; /* Slightly larger font for better readability */
         }
         #messageInput:focus ~ #sendButton svg path,
         #messageInput:valid ~ #sendButton svg path {
@@ -420,7 +421,7 @@
             try {
                 const tokenData = JSON.parse(atob(token.split('.')[1]));
                 username = tokenData.username;
-                console.log("Logged-in username:", username); // Debug: Log the username
+                console.log("Logged-in username:", username);
                 if (checkTokenExpiration()) return;
                 await fetchChatPartner();
                 await fetchMessages();
@@ -444,6 +445,12 @@
                 return;
             }
 
+            // Prevent sending if a file is already being uploaded
+            if (isSendingFile) {
+                console.log("File upload in progress, please wait...");
+                return;
+            }
+
             // Generate a unique local message ID
             const localMessageId = `msg-${Date.now()}-${messageCounter++}`;
             const currentTimestamp = new Date().toISOString();
@@ -455,6 +462,9 @@
                 const isImage = ['jpg', 'jpeg', 'png', 'gif'].includes(fileExt);
                 const isVideo = ['mp4', 'webm'].includes(fileExt);
 
+                // Set the flag to prevent multiple sends
+                isSendingFile = true;
+
                 const message = {
                     sender: username,
                     receiver: chatPartner,
@@ -465,6 +475,9 @@
                     status: "Sending..."
                 };
                 displayMessage(message, false);
+
+                // Clear the file input immediately to prevent re-sending
+                fileInput.value = '';
 
                 const formData = new FormData();
                 formData.append('file', file);
@@ -506,6 +519,10 @@
                         existingMessage.remove();
                     }
                     displayMessage(errorMessage, false);
+                })
+                .finally(() => {
+                    // Reset the flag after the upload completes (success or failure)
+                    isSendingFile = false;
                 });
             }
 
@@ -541,7 +558,7 @@
 
         function displayMessage(message, isFromServer) {
             console.log("Displaying message with timestamp:", message.timestamp);
-            console.log("Message sender:", message.sender, "Logged-in username:", username); // Debug: Log sender and username
+            console.log("Message sender:", message.sender, "Logged-in username:", username);
             const chatWindow = document.getElementById('chatWindow');
             
             const timestampDiv = document.createElement('div');
@@ -639,11 +656,7 @@
 
         document.getElementById('file').addEventListener('change', debounce(() => {
             if (document.getElementById('file').files.length > 0 && !isSendingFile) {
-                isSendingFile = true;
-                sendMessage().finally(() => {
-                    isSendingFile = false;
-                    document.getElementById('file').value = '';
-                });
+                sendMessage();
             }
         }, 500));
     </script>
