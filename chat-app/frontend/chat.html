@@ -420,6 +420,7 @@
             try {
                 const tokenData = JSON.parse(atob(token.split('.')[1]));
                 username = tokenData.username;
+                console.log("Logged-in username:", username); // Debug: Log the username
                 if (checkTokenExpiration()) return;
                 await fetchChatPartner();
                 await fetchMessages();
@@ -540,6 +541,7 @@
 
         function displayMessage(message, isFromServer) {
             console.log("Displaying message with timestamp:", message.timestamp);
+            console.log("Message sender:", message.sender, "Logged-in username:", username); // Debug: Log sender and username
             const chatWindow = document.getElementById('chatWindow');
             
             const timestampDiv = document.createElement('div');
@@ -554,12 +556,13 @@
                 hour12: true
             });
 
-        
             const messageBubble = document.createElement('div');
             messageBubble.classList.add('chat-bubble');
             if (message.sender === username) {
+                console.log("Marking message as outgoing (sent by user)");
                 messageBubble.classList.add('outgoing');
             } else {
+                console.log("Marking message as incoming (received from other user)");
                 messageBubble.classList.add('incoming');
             }
             if (message.local_id) {
