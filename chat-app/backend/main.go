@@ -17,7 +17,7 @@ import (
 )
 
 type Message struct {
-    ID        int       `json:"id"`
+    ID        int       `json:"id,omitempty"` // Changed to omitempty to allow insertion without ID
     ChatID    int       `json:"chat_id"`
     Sender    string    `json:"sender"`
     Receiver  string    `json:"receiver"`
@@ -142,27 +142,39 @@ func (h *Hub) run() {
                 messageData, err := json.Marshal(message)
                 if err != nil {
                     log.Printf("Error marshaling message: %v", err)
-                } else {
-                    req, err := http.NewRequest("POST", supabaseURL+"/rest/v1/messages", bytes.NewBuffer(messageData))
-                    if err != nil {
-                        log.Printf("Error creating request to save message: %v", err)
-                    } else {
-                        req.Header.Set("Content-Type", "application/json")
-                        req.Header.Set("apikey", supabaseKey)
-                        req.Header.Set("Authorization", "Bearer "+supabaseKey)
-                        resp, err := supabaseClient.Do(req)
-                        if err != nil {
-                            log.Printf("Error saving message to Supabase: %v", err)
-                        } else {
-                            defer resp.Body.Close()
-                            if resp.StatusCode != http.StatusCreated {
-                                body, _ := io.ReadAll(resp.Body)
-                                log.Printf("Supabase save message failed: Status=%d, Response=%s", resp.StatusCode, string(body))
-                            } else {
-                                log.Printf("Successfully saved message to Supabase: %+v", message)
-                            }
-                        }
-                    }
+                    continue
+                }
+                req, err := http.NewRequest("POST", supabaseURL+"/rest/v1/messages", bytes.NewBuffer(messageData))
+                if err != nil {
+                    log.Printf("Error creating request to save message: %v", err)
+                    continue
+                }
+                req.Header.Set("Content-Type", "application/json")
+                req.Header.Set("apikey", supabaseKey)
+                req.Header.Set("Authorization", "Bearer "+supabaseKey)
+                req.Header.Set("Prefer", "return=representation") // Ensure the inserted row is returned
+                resp, err := supabaseClient.Do(req)
+                if err != nil {
+                    log.Printf("Error saving message to Supabase: %v", err)
+                    continue
+                }
+                defer resp.Body.Close()
+
+                if resp.StatusCode != http.StatusCreated {
+                    body, _ := io.ReadAll(resp.Body)
+                    log.Printf("Supabase save message failed: Status=%d, Response=%s", resp.StatusCode, string(body))
+                    continue
+                }
+
+                // Decode the response to get the inserted message with ID
+                var savedMessages []Message
+                if err := json.NewDecoder(resp.Body).Decode(&savedMessages); err != nil {
+                    log.Printf("Error decoding saved message: %v", err)
+                    continue
+                }
+                if len(savedMessages) > 0 {
+                    message.ID = savedMessages[0].ID // Update message with the returned ID
+                    log.Printf("Successfully saved message to Supabase with ID %d: %+v", message.ID, message)
                 }
             }
 
@@ -171,7 +183,9 @@ func (h *Hub) run() {
                 if client.chatID == message.ChatID {
                     select {
                     case client.send <- message:
-                        client.lastMessageID = message.ID
+                        if message.ID > client.lastMessageID {
+                            client.lastMessageID = message.ID
+                        }
                     default:
                         log.Printf("Failed to send message to client %s in chat %d, closing connection", client.username, client.chatID)
                         close(client.send)
@@ -345,6 +359,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
     go client.writePump()
     go client.readPump()
 
+    // Fetch and send previous messages
     req, err = http.NewRequest("GET", supabaseURL+"/rest/v1/messages?chat_id=eq."+chatIDStr+"&order=timestamp.asc", nil)
     if err != nil {
         log.Printf("Error creating request to fetch messages: %v", err)
@@ -360,9 +375,15 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
     defer resp.Body.Close()
 
     var messages []Message
-    json.NewDecoder(resp.Body).Decode(&messages)
+    if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+        log.Printf("Error decoding messages: %v", err)
+        return
+    }
     if len(messages) > 0 {
         client.lastMessageID = messages[len(messages)-1].ID
+        for _, msg := range messages {
+            client.send <- msg
+        }
     }
 
     partner := chats[0].Participant1
