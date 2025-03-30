@@ -427,6 +427,7 @@
             }
 
             const localMessageId = `msg-${messageCounter++}`;
+            const currentTimestamp = new Date().toISOString(); // Generate current timestamp
 
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
@@ -439,7 +440,7 @@
                     receiver: chatPartner,
                     content: "Uploading file...",
                     file_url: isImage || isVideo ? URL.createObjectURL(file) : null,
-                    timestamp: new Date().toISOString(),
+                    timestamp: currentTimestamp,
                     local_id: localMessageId,
                     status: "Sending..."
                 };
@@ -500,7 +501,7 @@
                     sender: username,
                     receiver: chatPartner,
                     content: messageText,
-                    timestamp: new Date().toISOString(),
+                    timestamp: currentTimestamp,
                     local_id: localMessageId,
                     status: "Sending..."
                 };
@@ -524,14 +525,21 @@
             
             const timestampDiv = document.createElement('div');
             timestampDiv.classList.add('timestamp');
-            timestampDiv.textContent = new Date(message.timestamp).toLocaleString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-                hour: 'numeric',
-                minute: 'numeric',
-                hour12: true
-            });
+            // Ensure timestamp is parsed and displayed in local timezone
+            const messageDate = new Date(message.timestamp);
+            if (isNaN(messageDate)) {
+                console.error("Invalid timestamp:", message.timestamp);
+                timestampDiv.textContent = "Invalid Date";
+            } else {
+                timestampDiv.textContent = messageDate.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                    hour: 'numeric',
+                    minute: 'numeric',
+                    hour12: true
+                });
+            }
 
             const messageBubble = document.createElement('div');
             messageBubble.classList.add('chat-bubble');
