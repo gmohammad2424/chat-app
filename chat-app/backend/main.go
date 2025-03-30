@@ -25,7 +25,7 @@ type Message struct {
     FileURL   string    `json:"file_url"`
     Timestamp time.Time `json:"timestamp"`
     Type      string    `json:"type,omitempty"`
-    LocalID   string    `json:"local_id,omitempty"` // Added to track client-side message ID
+    LocalID   string    `json:"local_id,omitempty"`
 }
 
 type Client struct {
@@ -138,9 +138,9 @@ func (h *Hub) run() {
             if message.Type != "status" {
                 messageData, _ := json.Marshal(message)
                 req, _ := http.NewRequest("POST", supabaseURL+"/rest/v1/messages", bytes.NewBuffer(messageData))
-                req.Header().Set("Content-Type", "application/json")
-                req.Header().Set("apikey", supabaseKey)
-                req.Header().Set("Authorization", "Bearer "+supabaseKey)
+                req.Header.Set("Content-Type", "application/json")
+                req.Header.Set("apikey", supabaseKey)
+                req.Header.Set("Authorization", "Bearer "+supabaseKey)
                 _, err := supabaseClient.Do(req)
                 if err != nil {
                     log.Printf("Error saving message: %v", err)
@@ -288,8 +288,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         http.Error(w, `{"error": "Error verifying chat: failed to create request"}`, http.StatusInternalServerError)
         return
     }
-    req.Header().Set("apikey", supabaseKey)
-    req.Header().Set("Authorization", "Bearer "+supabaseKey)
+    req.Header.Set("apikey", supabaseKey)
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
     if err != nil {
         log.Printf("Error verifying chat: %v", err)
@@ -329,8 +329,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         log.Printf("Error creating request to fetch messages: %v", err)
         return
     }
-    req.Header().Set("apikey", supabaseKey)
-    req.Header().Set("Authorization", "Bearer "+supabaseKey)
+    req.Header.Set("apikey", supabaseKey)
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err = supabaseClient.Do(req)
     if err != nil {
         log.Printf("Error fetching messages: %v", err)
@@ -388,8 +388,8 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
         http.Error(w, `{"error": "Error fetching user: failed to create request"}`, http.StatusInternalServerError)
         return
     }
-    req.Header().Set("apikey", supabaseKey)
-    req.Header().Set("Authorization", "Bearer "+supabaseKey)
+    req.Header.Set("apikey", supabaseKey)
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
     if err != nil {
         log.Printf("Error fetching user: %v", err)
@@ -432,8 +432,8 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
         http.Error(w, `{"error": "Error fetching chats: failed to create request"}`, http.StatusInternalServerError)
         return
     }
-    req.Header().Set("apikey", supabaseKey)
-    req.Header().Set("Authorization", "Bearer "+supabaseKey)
+    req.Header.Set("apikey", supabaseKey)
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err = supabaseClient.Do(req)
     if err != nil {
         log.Printf("Error fetching chats: %v", err)
@@ -516,8 +516,8 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
         http.Error(w, `{"error": "Error verifying chat: failed to create request"}`, http.StatusInternalServerError)
         return
     }
-    req.Header().Set("apikey", supabaseKey)
-    req.Header().Set("Authorization", "Bearer "+supabaseKey)
+    req.Header.Set("apikey", supabaseKey)
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
     if err != nil {
         log.Printf("Error verifying chat: %v", err)
@@ -560,9 +560,8 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
     }
     defer file.Close()
 
-    // Sanitize file name to avoid invalid characters
     fileName := fmt.Sprintf("%d-%s", time.Now().UnixNano(), strings.ReplaceAll(handler.Filename, " ", "_"))
-    fileName = strings.ReplaceAll(fileName, "/", "_") // Replace slashes to avoid path issues
+    fileName = strings.ReplaceAll(fileName, "/", "_")
 
     fileData, err := io.ReadAll(file)
     if err != nil {
@@ -571,7 +570,6 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Validate Supabase URL and key
     if supabaseURL == "" || supabaseKey == "" {
         log.Printf("Supabase URL or Key is missing: URL=%s, Key=%s", supabaseURL, supabaseKey)
         http.Error(w, `{"error": "Server configuration error: missing Supabase URL or Key"}`, http.StatusInternalServerError)
@@ -584,8 +582,8 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
         http.Error(w, `{"error": "Error uploading file: failed to create request: `+err.Error()+`"}`, http.StatusInternalServerError)
         return
     }
-    req.Header().Set("Authorization", "Bearer "+supabaseKey)
-    req.Header().Set("Content-Type", handler.Header.Get("Content-Type"))
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
+    req.Header.Set("Content-Type", handler.Header.Get("Content-Type"))
     resp, err = supabaseClient.Do(req)
     if err != nil {
         log.Printf("Error uploading file to Supabase: %v", err)
@@ -668,8 +666,8 @@ func handleGetChat(w http.ResponseWriter, r *http.Request) {
         http.Error(w, `{"error": "Error fetching chat: failed to create request"}`, http.StatusInternalServerError)
         return
     }
-    req.Header().Set("apikey", supabaseKey)
-    req.Header().Set("Authorization", "Bearer "+supabaseKey)
+    req.Header.Set("apikey", supabaseKey)
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
     if err != nil {
         log.Printf("Error fetching chat from Supabase: %v", err)
@@ -755,8 +753,8 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
         http.Error(w, `{"error": "Error fetching chat: failed to create request"}`, http.StatusInternalServerError)
         return
     }
-    req.Header().Set("apikey", supabaseKey)
-    req.Header().Set("Authorization", "Bearer "+supabaseKey)
+    req.Header.Set("apikey", supabaseKey)
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
     if err != nil {
         log.Printf("Error fetching chat from Supabase: %v", err)
@@ -793,8 +791,8 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
         http.Error(w, `{"error": "Error fetching messages: failed to create request"}`, http.StatusInternalServerError)
         return
     }
-    req.Header().Set("apikey", supabaseKey)
-    req.Header().Set("Authorization", "Bearer "+supabaseKey)
+    req.Header.Set("apikey", supabaseKey)
+    req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err = supabaseClient.Do(req)
     if err != nil {
         log.Printf("Error fetching messages: %v", err)
@@ -839,9 +837,9 @@ func main() {
             log.Printf("Error creating request to add user %s: %v", user.username, err)
             continue
         }
-        req.Header().Set("Content-Type", "application/json")
-        req.Header().Set("apikey", supabaseKey)
-        req.Header().Set("Authorization", "Bearer "+supabaseKey)
+        req.Header.Set("Content-Type", "application/json")
+        req.Header.Set("apikey", supabaseKey)
+        req.Header.Set("Authorization", "Bearer "+supabaseKey)
         _, err = supabaseClient.Do(req)
         if err != nil {
             log.Printf("Error adding user %s to Supabase: %v", user.username, err)
