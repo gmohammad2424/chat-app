@@ -427,7 +427,7 @@
             }
 
             const localMessageId = `msg-${messageCounter++}`;
-            const currentTimestamp = new Date().toISOString(); // UTC timestamp
+            const currentTimestamp = new Date().toISOString();
             console.log("Sending message with timestamp:", currentTimestamp);
 
             if (fileInput.files.length > 0) {
@@ -526,7 +526,6 @@
             
             const timestampDiv = document.createElement('div');
             timestampDiv.classList.add('timestamp');
-            // Parse the timestamp (assumed to be in UTC) and convert to local time
             const date = new Date(message.timestamp);
             timestampDiv.textContent = date.toLocaleString('en-US', {
                 month: 'short',
