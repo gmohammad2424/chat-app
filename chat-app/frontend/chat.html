@@ -427,7 +427,8 @@
             }
 
             const localMessageId = `msg-${messageCounter++}`;
-            const currentTimestamp = new Date().toISOString(); // Generate current timestamp
+            const currentTimestamp = new Date().toISOString(); // UTC timestamp
+            console.log("Sending message with timestamp:", currentTimestamp);
 
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
@@ -520,26 +521,21 @@
         }
 
         function displayMessage(message, isFromServer) {
-            console.log("Displaying message:", message);
+            console.log("Displaying message with timestamp:", message.timestamp);
             const chatWindow = document.getElementById('chatWindow');
             
             const timestampDiv = document.createElement('div');
             timestampDiv.classList.add('timestamp');
-            // Ensure timestamp is parsed and displayed in local timezone
-            const messageDate = new Date(message.timestamp);
-            if (isNaN(messageDate)) {
-                console.error("Invalid timestamp:", message.timestamp);
-                timestampDiv.textContent = "Invalid Date";
-            } else {
-                timestampDiv.textContent = messageDate.toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                    hour: 'numeric',
-                    minute: 'numeric',
-                    hour12: true
-                });
-            }
+            // Parse the timestamp (assumed to be in UTC) and convert to local time
+            const date = new Date(message.timestamp);
+            timestampDiv.textContent = date.toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: true
+            });
 
             const messageBubble = document.createElement('div');
             messageBubble.classList.add('chat-bubble');
