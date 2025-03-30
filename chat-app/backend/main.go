@@ -70,7 +70,7 @@ func corsMiddleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Access-Control-Allow-Origin", "https://chat-frontend-7v8w.onrender.com")
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        w.Header.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
         w.Header().Set("Access-Control-Allow-Credentials", "true")
 
         if r.Method == http.MethodOptions {
@@ -281,11 +281,17 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    req, _ := http.NewRequest("GET", supabaseURL+"/rest/v1/chats?id=eq."+chatIDStr, nil)
+    req, err := http.NewRequest("GET", supabaseURL+"/rest/v1/chats?id=eq."+chatIDStr, nil)
+    if err != nil {
+        log.Printf("Error creating request to verify chat: %v", err)
+        http.Error(w, "Error verifying chat", http.StatusInternalServerError)
+        return
+    }
     req.Header.Set("apikey", supabaseKey)
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
     if err != nil {
+        log.Printf("Error verifying chat: %v", err)
         http.Error(w, "Error verifying chat", http.StatusInternalServerError)
         return
     }
@@ -295,7 +301,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
         Participant1 string `json:"participant1"`
         Participant2 string `json:"participant2"`
     }
-    json.NewDecoder(resp.Body).Decode(&chats)
+    if err := json.NewDecoder(resp.Body).Decode(&chats); err != nil {
+        log.Printf("Error decoding chat response: %v", err)
+        http.Error(w, "Error verifying chat", http.StatusInternalServerError)
+        return
+    }
     if len(chats) == 0 || (chats[0].Participant1 != username && chats[0].Participant2 != username) {
         http.Error(w, "User not authorized for this chat", http.StatusForbidden)
         return
@@ -313,7 +323,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
     go client.writePump()
     go client.readPump()
 
-    req, _ = http.NewRequest("GET", supabaseURL+"/rest/v1/messages?chat_id=eq."+chatIDStr+"&order=timestamp.asc", nil)
+    req, err = http.NewRequest("GET", supabaseURL+"/rest/v1/messages?chat_id=eq."+chatIDStr+"&order=timestamp.asc", nil)
+    if err != nil {
+        log.Printf("Error creating request to fetch messages: %v", err)
+        return
+    }
     req.Header.Set("apikey", supabaseKey)
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err = supabaseClient.Do(req)
@@ -367,11 +381,17 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    req, _ := http.NewRequest("GET", supabaseURL+"/rest/v1/users?username=eq."+loginData.Username, nil)
+    req, err := http.NewRequest("GET", supabaseURL+"/rest/v1/users?username=eq."+loginData.Username, nil)
+    if err != nil {
+        log.Printf("Error creating request to fetch user: %v", err)
+        http.Error(w, "Error fetching user", http.StatusInternalServerError)
+        return
+    }
     req.Header.Set("apikey", supabaseKey)
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
     if err != nil {
+        log.Printf("Error fetching user: %v", err)
         http.Error(w, "Error fetching user", http.StatusInternalServerError)
         return
     }
@@ -380,7 +400,11 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
     var users []struct {
         Password string `json:"password"`
     }
-    json.NewDecoder(resp.Body).Decode(&users)
+    if err := json.NewDecoder(resp.Body).Decode(&users); err != nil {
+        log.Printf("Error decoding user response: %v", err)
+        http.Error(w, "Error fetching user", http.StatusInternalServerError)
+        return
+    }
     if len(users) == 0 {
         http.Error(w, `{"message": "Invalid username or password"}`, http.StatusUnauthorized)
         return
@@ -401,11 +425,17 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    req, _ = http.NewRequest("GET", supabaseURL+"/rest/v1/chats?or=(participant1.eq."+loginData.Username+",participant2.eq."+loginData.Username+")", nil)
+    req, err = http.NewRequest("GET", supabaseURL+"/rest/v1/chats?or=(participant1.eq."+loginData.Username+",participant2.eq."+loginData.Username+")", nil)
+    if err != nil {
+        log.Printf("Error creating request to fetch chats: %v", err)
+        http.Error(w, "Error fetching chats", http.StatusInternalServerError)
+        return
+    }
     req.Header.Set("apikey", supabaseKey)
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err = supabaseClient.Do(req)
     if err != nil {
+        log.Printf("Error fetching chats: %v", err)
         http.Error(w, "Error fetching chats", http.StatusInternalServerError)
         return
     }
@@ -414,7 +444,11 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
     var chats []struct {
         ID int `json:"id"`
     }
-    json.NewDecoder(resp.Body).Decode(&chats)
+    if err := json.NewDecoder(resp.Body).Decode(&chats); err != nil {
+        log.Printf("Error decoding chats response: %v", err)
+        http.Error(w, "Error fetching chats", http.StatusInternalServerError)
+        return
+    }
     if len(chats) == 0 {
         http.Error(w, "No chats found for this user", http.StatusNotFound)
         return
@@ -627,7 +661,12 @@ func handleGetChat(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    req, _ := http.NewRequest("GET", supabaseURL+"/rest/v1/chats?id=eq."+chatIDStr, nil)
+    req, err := http.NewRequest("GET", supabaseURL+"/rest/v1/chats?id=eq."+chatIDStr, nil)
+    if err != nil {
+        log.Printf("Error creating request to fetch chat: %v", err)
+        http.Error(w, "Error fetching chat", http.StatusInternalServerError)
+        return
+    }
     req.Header.Set("apikey", supabaseKey)
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
@@ -643,7 +682,11 @@ func handleGetChat(w http.ResponseWriter, r *http.Request) {
         Participant1 string `json:"participant1"`
         Participant2 string `json:"participant2"`
     }
-    json.NewDecoder(resp.Body).Decode(&chats)
+    if err := json.NewDecoder(resp.Body).Decode(&chats); err != nil {
+        log.Printf("Error decoding chat response: %v", err)
+        http.Error(w, "Error fetching chat", http.StatusInternalServerError)
+        return
+    }
     if len(chats) == 0 {
         log.Printf("Chat not found for chat_id: %s", chatIDStr)
         http.Error(w, "Chat not found", http.StatusNotFound)
@@ -705,7 +748,12 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    req, _ := http.NewRequest("GET", supabaseURL+"/rest/v1/chats?id=eq."+chatIDStr, nil)
+    req, err := http.NewRequest("GET", supabaseURL+"/rest/v1/chats?id=eq."+chatIDStr, nil)
+    if err != nil {
+        log.Printf("Error creating request to fetch chat: %v", err)
+        http.Error(w, "Error fetching chat", http.StatusInternalServerError)
+        return
+    }
     req.Header.Set("apikey", supabaseKey)
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err := supabaseClient.Do(req)
@@ -721,7 +769,11 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
         Participant1 string `json:"participant1"`
         Participant2 string `json:"participant2"`
     }
-    json.NewDecoder(resp.Body).Decode(&chats)
+    if err := json.NewDecoder(resp.Body).Decode(&chats); err != nil {
+        log.Printf("Error decoding chat response: %v", err)
+        http.Error(w, "Error fetching chat", http.StatusInternalServerError)
+        return
+    }
     if len(chats) == 0 {
         log.Printf("Chat not found for chat_id: %s", chatIDStr)
         http.Error(w, "Chat not found", http.StatusNotFound)
@@ -734,18 +786,28 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    req, _ = http.NewRequest("GET", supabaseURL+"/rest/v1/messages?chat_id=eq."+chatIDStr+"&order=timestamp.asc", nil)
+    req, err = http.NewRequest("GET", supabaseURL+"/rest/v1/messages?chat_id=eq."+chatIDStr+"&order=timestamp.asc", nil)
+    if err != nil {
+        log.Printf("Error creating request to fetch messages: %v", err)
+        http.Error(w, "Error fetching messages", http.StatusInternalServerError)
+        return
+    }
     req.Header.Set("apikey", supabaseKey)
     req.Header.Set("Authorization", "Bearer "+supabaseKey)
     resp, err = supabaseClient.Do(req)
     if err != nil {
         log.Printf("Error fetching messages: %v", err)
+        http.Error(w, "Error fetching messages", http.StatusInternalServerError)
         return
     }
     defer resp.Body.Close()
 
     var messages []Message
-    json.NewDecoder(resp.Body).Decode(&messages)
+    if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+        log.Printf("Error decoding messages response: %v", err)
+        http.Error(w, "Error fetching messages", http.StatusInternalServerError)
+        return
+    }
 
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(messages)
@@ -758,16 +820,31 @@ func main() {
         {"user1", "password123"},
         {"user2", "password123"},
     } {
-        hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(user.password), bcrypt.DefaultCost)
-        userData, _ := json.Marshal(map[string]interface{}{
+        hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.password), bcrypt.DefaultCost)
+        if err != nil {
+            log.Printf("Error hashing password for user %s: %v", user.username, err)
+            continue
+        }
+        userData, err := json.Marshal(map[string]interface{}{
             "username": user.username,
             "password": string(hashedPassword),
         })
-        req, _ := http.NewRequest("POST", supabaseURL+"/rest/v1/users", bytes.NewBuffer(userData))
+        if err != nil {
+            log.Printf("Error marshaling user data for user %s: %v", user.username, err)
+            continue
+        }
+        req, err := http.NewRequest("POST", supabaseURL+"/rest/v1/users", bytes.NewBuffer(userData))
+        if err != nil {
+            log.Printf("Error creating request to add user %s: %v", user.username, err)
+            continue
+        }
         req.Header.Set("Content-Type", "application/json")
         req.Header.Set("apikey", supabaseKey)
         req.Header.Set("Authorization", "Bearer "+supabaseKey)
-        supabaseClient.Do(req)
+        _, err = supabaseClient.Do(req)
+        if err != nil {
+            log.Printf("Error adding user %s to Supabase: %v", user.username, err)
+        }
     }
 
     mux := http.NewServeMux()
