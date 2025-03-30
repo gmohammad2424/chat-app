@@ -20,8 +20,10 @@ body.welcome-page {
 .box {
     position: relative;
     width: 100%;
+    max-width: 600px; /* Constrain the width to center the animation */
     height: 300px;
     transform-style: preserve-3d;
+    margin: 0 auto; /* Ensure the box is centered */
 }
 
 .box div {
@@ -310,6 +312,7 @@ body.welcome-page {
 
     .box {
         height: 250px;
+        max-width: 500px; /* Adjust for smaller screens */
     }
 
     .button {
@@ -341,6 +344,7 @@ body.welcome-page {
 
     .box {
         height: 200px;
+        max-width: 350px; /* Further adjust for mobile */
     }
 
     .button {
