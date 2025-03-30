@@ -65,7 +65,7 @@ var (
     supabaseKey    = os.Getenv("SUPABASE_KEY")
     jwtSecret      = []byte(os.Getenv("JWT_SECRET"))
     supabaseClient = &http.Client{
-        Timeout: 10 * time.Second, // Add timeout to prevent hanging
+        Timeout: 10 * time.Second,
     }
 )
 
@@ -138,7 +138,6 @@ func (h *Hub) run() {
                 continue
             }
 
-            // Attempt to save the message to Supabase, but don't block the broadcast
             if message.Type != "status" {
                 messageData, err := json.Marshal(message)
                 if err != nil {
@@ -167,7 +166,6 @@ func (h *Hub) run() {
                 }
             }
 
-            // Broadcast the message to clients regardless of whether the save succeeded
             log.Printf("Broadcasting message: %+v", message)
             for client := range h.clients {
                 if client.chatID == message.ChatID {
@@ -570,9 +568,7 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 
     err = r.ParseMultipartForm(10 << 20)
     if err != nil {
-        log
-
-.Printf("Error parsing multipart form: %v", err)
+        log.Printf("Error parsing multipart form: %v", err)
         http.Error(w, `{"error": "Error parsing file: `+err.Error()+`"}`, http.StatusBadRequest)
         return
     }
@@ -646,7 +642,7 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
     hub.broadcast <- message
 
     w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(map[string]string{"message": "File uploaded successfully", "file_url": fileURL})
+    json.NewEncoder(w).Encode(map[string]string{"message": "File uploaded successfully", "file_url: fileURL})
 }
 
 func handleGetChat(w http.ResponseWriter, r *http.Request) {
@@ -880,7 +876,6 @@ func main() {
             continue
         }
         req.Header.Set("Content-Type", "application/json")
-        req.Header.Set("apikey", supabaseKey)
         req.Header.Set("Authorization", "Bearer "+supabaseKey)
         _, err = supabaseClient.Do(req)
         if err != nil {
