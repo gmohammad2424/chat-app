@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+vvv<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -7,94 +7,87 @@
     <link rel="stylesheet" href="styles.css">
     <style>
         body {
-            background: #333;
-            min-height: 100vh;
+            background-color: #333;
+            margin: 0;
+            padding: 0;
             display: flex;
             justify-content: center;
             align-items: center;
-            margin: 0;
+            height: 100vh;
+        }
+        .login-container {
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        .login-container h2 {
+            margin-bottom: 20px;
+            font-size: 24px;
+            color: #333;
+        }
+        .login-container input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+            font-size: 14px;
         }
     </style>
 </head>
 <body>
-    <div class="wrapper">
-        
-        <div class="flip-card__inner">
-            <div class="flip-card__front">
-                <div class="title">Log in</div>
-                <form class="flip-card__form" id="login-form">
-                    <input class="flip-card__input" name="username" placeholder="Username" type="text" required>
-                    <input class="flip-card__input" name="password" placeholder="Password" type="password" required>
-                    <button class="button flip-card__btn" type="submit"><span>Login</span></button>
-                </form>
-            </div>
-            <div class="flip-card__back">
-                <div class="title">Sign up</div>
-                <form class="flip-card__form" id="signup-form">
-                    <input class="flip-card__input" name="username" placeholder="Username" type="text" required>
-                    <input class="flip-card__input" name="email" placeholder="Email" type="email" required>
-                    <input class="flip-card__input" name="password" placeholder="Password" type="password" required>
-                    <button class="button flip-card__btn" type="submit"><span>Sign Up</span></button>
-                </form>
-            </div>
-        </div>
+    <div class="login-container">
+        <h2>Login to Chat</h2>
+        <input type="text" id="username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
+        <button class="button" onclick="login()"><span>Login</span></button>
+        <div id="error" class="error"></div>
     </div>
 
     <script>
-        const backendUrl = 'https://chat-backend.onrender.com'; // Replace with your backend URL
+        async function login() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+            const errorDiv = document.getElementById('error');
 
-        // Handle Login Form Submission
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const username = formData.get('username');
-            const password = formData.get('password');
-
-            try {
-                const response = await fetch(`${backendUrl}/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
-                });
-                const data = await response.json();
-                if (data.token) {
-                    localStorage.setItem('token', data.token);
-                    localStorage.setItem('chat_id', data.chat_id);
-                    window.location.href = 'chat.html';
-                } else {
-                    alert(data.message || 'Login failed');
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('An error occurred during login');
+            if (!username || !password) {
+                errorDiv.textContent = "Please enter both username and password";
+                return;
             }
-        });
-
-        // Handle Signup Form Submission
-        document.getElementById('signup-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const username = formData.get('username');
-            const email = formData.get('email');
-            const password = formData.get('password');
 
             try {
-                const response = await fetch(`${backendUrl}/signup`, {
+                const response = await fetch('https://chat-backend-gxh8.onrender.com/login', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, email, password })
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password }),
                 });
+
                 const data = await response.json();
-                if (data.token) {
+                if (response.ok) {
                     localStorage.setItem('token', data.token);
-                    localStorage.setItem('chat_id', data.chat_id);
-                    window.location.href = 'chat.html';
+                    window.location.href = `/chat.html?chat_id=${data.chat_id}`;
                 } else {
-                    alert(data.message || 'Signup failed');
+                    errorDiv.textContent = data.message || "Invalid username or password";
                 }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('An error occurred during signup');
+            } catch (err) {
+                errorDiv.textContent = "Error logging in. Please try again.";
+            }
+        }
+
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                login();
             }
         });
     </script>
