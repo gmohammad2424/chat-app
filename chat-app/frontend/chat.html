@@ -55,7 +55,7 @@
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            background-image: url('https://www.toptal.com/designers/subtlepatterns/uploads/whatsapp-background.png');
+            background-image: url('https://images.unsplash.com/photo-1528459199957-0ff63481aa09?ixlib=rb-4.0.3&auto=format&fit=crop&w=1350&q=80');
             background-size: cover;
         }
         .chat-bubble {
@@ -291,6 +291,9 @@
         // Your VAPID public key (replace with your VAPID key from Firebase)
         const vapidPublicKey = "YOUR_VAPID_PUBLIC_KEY";
 
+        // Create an Audio object for the notification sound
+        const notificationSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
+
         let ws;
         const urlParams = new URLSearchParams(window.location.search);
         const chatId = urlParams.get('chat_id');
@@ -328,12 +331,22 @@
                 return;
             }
 
-            const permission = await Notification.requestPermission();
-            if (permission !== "granted") {
-                console.log("Notification permission denied.");
+            // Check current permission status
+            if (Notification.permission === "denied") {
+                console.log("Notification permission denied. Please enable notifications in your browser settings.");
+                alert("Notifications are disabled. Please enable them in your browser settings to receive message alerts.");
                 return;
             }
-            console.log("Notification permission granted.");
+
+            if (Notification.permission !== "granted") {
+                const permission = await Notification.requestPermission();
+                if (permission !== "granted") {
+                    console.log("Notification permission denied.");
+                    alert("Notifications are disabled. Please enable them in your browser settings to receive message alerts.");
+                    return;
+                }
+                console.log("Notification permission granted.");
+            }
 
             const registration = await registerServiceWorker();
             if (!registration) return;
@@ -367,6 +380,34 @@
                 outputArray[i] = rawData.charCodeAt(i);
             }
             return outputArray;
+        }
+
+        // Show a local notification (visual and sound) when the tab is active
+        function showLocalNotification(sender, messageContent) {
+            // Play the notification sound
+            notificationSound.play().catch(err => {
+                console.error("Failed to play notification sound:", err);
+            });
+
+            // Create a visual notification in the chat window (e.g., a temporary banner)
+            const notificationBanner = document.createElement('div');
+            notificationBanner.style.position = 'fixed';
+            notificationBanner.style.top = '10px';
+            notificationBanner.style.left = '50%';
+            notificationBanner.style.transform = 'translateX(-50%)';
+            notificationBanner.style.backgroundColor = '#075E54';
+            notificationBanner.style.color = '#ffffff';
+            notificationBanner.style.padding = '10px 20px';
+            notificationBanner.style.borderRadius = '5px';
+            notificationBanner.style.boxShadow = '0 2px 5px rgba(0, 0, 0, 0.2)';
+            notificationBanner.style.zIndex = '1000';
+            notificationBanner.textContent = `New message from ${sender}: ${messageContent}`;
+            document.body.appendChild(notificationBanner);
+
+            // Remove the banner after 3 seconds
+            setTimeout(() => {
+                notificationBanner.remove();
+            }, 3000);
         }
 
         function debounce(func, wait) {
@@ -468,6 +509,14 @@
                 if (message.id && !displayedMessageIds.has(message.id)) {
                     displayMessage(message, true);
                     displayedMessageIds.add(message.id);
+
+                    // Show local notification and play sound for new messages from the chat partner
+                    if (message.sender !== username) {
+                        const messageContent = message.content || (message.file_url ? "Sent a file" : "New message");
+                        if (document.visibilityState === "visible") {
+                            showLocalNotification(message.sender, messageContent);
+                        }
+                    }
                 }
             };
 
@@ -656,6 +705,7 @@
                 minute: 'numeric',
                 hour12: true
             });
+
 
             const messageBubble = document.createElement('div');
             messageBubble.classList.add('chat-bubble');
