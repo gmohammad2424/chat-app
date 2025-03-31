@@ -277,19 +277,18 @@
     <script>
         // Initialize Firebase (replace with your Firebase config)
         const firebaseConfig = {
-            apiKey: "YOUR_API_KEY",
-            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_PROJECT_ID.appspot.com",
-            messagingSenderId: "YOUR_SENDER_ID",
-            appId: "YOUR_APP_ID",
-            measurementId: "YOUR_MEASUREMENT_ID"
+          apiKey: "AIzaSyAi4RYSgi7bPiAXZLUbB-KS4LuvvMhvrLM",
+          authDomain: "chatapp-moh.firebaseapp.com",
+          projectId: "chatapp-moh",
+          storageBucket: "chatapp-moh.firebasestorage.app",
+          messagingSenderId: "814256503636",
+          appId: "1:814256503636:web:7ee0ae666170908a3566c1"
         };
         firebase.initializeApp(firebaseConfig);
         const messaging = firebase.messaging();
 
         // Your VAPID public key (replace with your VAPID key from Firebase)
-        const vapidPublicKey = "YOUR_VAPID_PUBLIC_KEY";
+        const vapidPublicKey = "BJPmu7lxFqlwyEnBJPfSYdfpqDi_A4EoOmt4fSYqvmjY8IIo44D6vbKQkZGTfx9rcCfxZ4ykHHSacmlo-GkhBeY
 
         // Create an Audio object for the notification sound
         const notificationSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
