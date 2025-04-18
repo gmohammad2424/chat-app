@@ -18,7 +18,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
-	"github.com/supabase-community/supabase-go"
+	supabaseClient "github.com/supabase-community/supabase-go"
 )
 
 // Global variables
@@ -26,7 +26,7 @@ var (
 	clients      = make(map[string]*Client) // Map of usernames to WebSocket clients
 	clientsMutex sync.Mutex                 // Mutex for thread-safe access
 	fcmClient    *messaging.Client          // Firebase Cloud Messaging client
-	supabase     *supabase.Client           // Supabase client
+	supaClient   *supabaseClient.Client     // Supabase client
 	jwtSecret    string                     // JWT secret from environment
 )
 
@@ -38,15 +38,15 @@ type Client struct {
 
 // Message struct for chat messages
 type Message struct {
-	Type      string    `json:"type"`      // "text", "file", "call_signal"
-	Sender    string    `json:"sender"`
-	Receiver  string    `json:"receiver"`
-	Content   string    `json:"content,omitempty"`
-	FileURL   string    `json:"file_url,omitempty"`
-	FileType  string    `json:"file_type,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
-	Status    string    `json:"status"`
-	Signal    SignalData `json:"signal,omitempty"` // For WebRTC signaling
+	Type      string      `json:"type"`      // "text", "file", "call_signal"
+	Sender    string      `json:"sender"`
+	Receiver  string      `json:"receiver"`
+	Content   string      `json:"content,omitempty"`
+	FileURL   string      `json:"file_url,omitempty"`
+	FileType  string      `json:"file_type,omitempty"`
+	Timestamp time.Time   `json:"timestamp"`
+	Status    string      `json:"status"`
+	Signal    SignalData  `json:"signal,omitempty"` // For WebRTC signaling
 }
 
 // SignalData for WebRTC signaling messages
@@ -97,9 +97,9 @@ func main() {
 	if supabaseURL == "" || supabaseKey == "" {
 		log.Fatal("SUPABASE_URL and SUPABASE_KEY environment variables are required")
 	}
-	supabase, err = supabase.InitClient(supabaseURL, supabaseKey, nil)
-	if err != nil {
-		log.Fatalf("Error initializing Supabase client: %v\n", err)
+	supaClient = supabaseClient.NewClient(supabaseURL, supabaseKey, nil)
+	if supaClient == nil {
+		log.Fatal("Failed to initialize Supabase client")
 	}
 
 	// Initialize Firebase
@@ -162,7 +162,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Check if user exists
 	var existingUsers []map[string]interface{}
-	_, err := supabase.DB.From("users").Select("*").Eq("username", user.Username).Execute(&existingUsers)
+	_, _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", user.Username).ExecuteTo(&existingUsers)
 	if err != nil {
 		log.Printf("Error checking user in Supabase: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -180,7 +180,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		"password": user.Password, // In production, hash the password
 	}
 	var result []map[string]interface{}
-	_, err = supabase.DB.From("users").Insert(newUser).Execute(&result)
+	_, _, err = supaClient.From("users").Insert(newUser, false, "", "", "").ExecuteTo(&result)
 	if err != nil {
 		log.Printf("Error registering user in Supabase: %v", err)
 		http.Error(w, "Failed to register user", http.StatusInternalServerError)
@@ -210,7 +210,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Verify user
 	var users []map[string]interface{}
-	_, err := supabase.DB.From("users").Select("*").Eq("username", creds.Username).Execute(&users)
+	_, _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).ExecuteTo(&users)
 	if err != nil {
 		log.Printf("Error fetching user from Supabase: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -223,8 +223,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := users[0]
-	storedPassword := user["password"].(string)
-	if storedPassword != creds.Password {
+	storedPassword, ok := user["password"].(string)
+	if !ok || storedPassword != creds.Password {
 		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
 		return
 	}
@@ -286,11 +286,11 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 	sender, receiver := parts[0], parts[1]
 
 	var messages []Message
-	_, err := supabase.DB.From("messages").
-		Select("*").
+	_, _, err := supaClient.From("messages").
+		Select("*", "exact", false).
 		Or(fmt.Sprintf("and(sender.eq.%s,receiver.eq.%s),and(sender.eq.%s,receiver.eq.%s)", sender, receiver, receiver, sender)).
-		Order("timestamp", "asc").
-		Execute(&messages)
+		Order("timestamp", true).
+		ExecuteTo(&messages)
 	if err != nil {
 		log.Printf("Error fetching messages from Supabase: %v", err)
 		http.Error(w, "Failed to fetch messages", http.StatusInternalServerError)
@@ -393,7 +393,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 				"type":      msg.Type,
 			}
 			var result []map[string]interface{}
-			_, err = supabase.DB.From("messages").Insert(newMessage).Execute(&result)
+			_, _, err = supaClient.From("messages").Insert(newMessage, false, "", "", "").ExecuteTo(&result)
 			if err != nil {
 				log.Printf("Error storing message in Supabase: %v", err)
 				continue
@@ -455,7 +455,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			clientsMutex.Unlock()
 
-			// Optionally store call metadata in Supabase
+			// Store call metadata in Supabase
 			if msg.Signal.Type == "call-initiate" {
 				newCall := map[string]interface{}{
 					"caller":     msg.Sender,
@@ -465,27 +465,27 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 					"status":     "initiated",
 				}
 				var result []map[string]interface{}
-				_, err = supabase.DB.From("calls").Insert(newCall).Execute(&result)
+				_, _, err = supaClient.From("calls").Insert(newCall, false, "", "", "").ExecuteTo(&result)
 				if err != nil {
 					log.Printf("Error storing call in Supabase: %v", err)
 				}
 			} else if msg.Signal.Type == "call-accept" || msg.Signal.Type == "call-reject" {
 				var calls []map[string]interface{}
-				_, err := supabase.DB.From("calls").
-					Select("*").
+				_, _, err := supaClient.From("calls").
+					Select("*", "exact", false).
 					Eq("caller", msg.Receiver).
 					Eq("callee", msg.Sender).
 					Eq("status", "initiated").
-					Execute(&calls)
+					ExecuteTo(&calls)
 				if err == nil && len(calls) > 0 {
 					updateCall := map[string]interface{}{
-						"status":    msg.Signal.CallStatus,
-						"end_time":  time.Now(),
+						"status":   msg.Signal.CallStatus,
+						"end_time": time.Now(),
 					}
-					_, err = supabase.DB.From("calls").
-						Update(updateCall).
+					_, _, err = supaClient.From("calls").
+						Update(updateCall, "", "").
 						Eq("id", fmt.Sprintf("%v", calls[0]["id"])).
-						Execute(&calls)
+						ExecuteTo(&calls)
 					if err != nil {
 						log.Printf("Error updating call status in Supabase: %v", err)
 					}
