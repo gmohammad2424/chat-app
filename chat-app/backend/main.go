@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 	supabaseClient "github.com/supabase-community/supabase-go"
+	"github.com/supabase-community/postgrest-go"
 )
 
 // Global variables
@@ -97,7 +98,11 @@ func main() {
 	if supabaseURL == "" || supabaseKey == "" {
 		log.Fatal("SUPABASE_URL and SUPABASE_KEY environment variables are required")
 	}
-	supaClient = supabaseClient.NewClient(supabaseURL, supabaseKey, nil)
+	var errClient error
+	supaClient, errClient = supabaseClient.NewClient(supabaseURL, supabaseKey, nil)
+	if errClient != nil {
+		log.Fatalf("Error initializing Supabase client: %v\n", errClient)
+	}
 	if supaClient == nil {
 		log.Fatal("Failed to initialize Supabase client")
 	}
@@ -162,9 +167,10 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Check if user exists
 	var existingUsers []map[string]interface{}
-	_, _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", user.Username).ExecuteTo(&existingUsers)
+	data, err := supaClient.From("users").Select("*", "exact", false).Eq("username", user.Username).ExecuteTo(&existingUsers)
 	if err != nil {
 		log.Printf("Error checking user in Supabase: %v", err)
+		log.Printf("Response data: %s", string(data))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -180,7 +186,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		"password": user.Password, // In production, hash the password
 	}
 	var result []map[string]interface{}
-	_, _, err = supaClient.From("users").Insert(newUser, false, "", "", "").ExecuteTo(&result)
+	_, err = supaClient.From("users").Insert(newUser).ExecuteTo(&result)
 	if err != nil {
 		log.Printf("Error registering user in Supabase: %v", err)
 		http.Error(w, "Failed to register user", http.StatusInternalServerError)
@@ -210,7 +216,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Verify user
 	var users []map[string]interface{}
-	_, _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).ExecuteTo(&users)
+	_, err := supaClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).ExecuteTo(&users)
 	if err != nil {
 		log.Printf("Error fetching user from Supabase: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -286,10 +292,10 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 	sender, receiver := parts[0], parts[1]
 
 	var messages []Message
-	_, _, err := supaClient.From("messages").
+	_, err := supaClient.From("messages").
 		Select("*", "exact", false).
-		Or(fmt.Sprintf("and(sender.eq.%s,receiver.eq.%s),and(sender.eq.%s,receiver.eq.%s)", sender, receiver, receiver, sender)).
-		Order("timestamp", true).
+		Or(fmt.Sprintf("and(sender.eq.%s,receiver.eq.%s)", sender, receiver), fmt.Sprintf("and(sender.eq.%s,receiver.eq.%s)", receiver, sender)).
+		Order("timestamp", &postgrest.OrderOpts{Ascending: true}).
 		ExecuteTo(&messages)
 	if err != nil {
 		log.Printf("Error fetching messages from Supabase: %v", err)
@@ -393,7 +399,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 				"type":      msg.Type,
 			}
 			var result []map[string]interface{}
-			_, _, err = supaClient.From("messages").Insert(newMessage, false, "", "", "").ExecuteTo(&result)
+			_, err = supaClient.From("messages").Insert(newMessage).ExecuteTo(&result)
 			if err != nil {
 				log.Printf("Error storing message in Supabase: %v", err)
 				continue
@@ -465,13 +471,13 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 					"status":     "initiated",
 				}
 				var result []map[string]interface{}
-				_, _, err = supaClient.From("calls").Insert(newCall, false, "", "", "").ExecuteTo(&result)
+				_, err = supaClient.From("calls").Insert(newCall).ExecuteTo(&result)
 				if err != nil {
 					log.Printf("Error storing call in Supabase: %v", err)
 				}
 			} else if msg.Signal.Type == "call-accept" || msg.Signal.Type == "call-reject" {
 				var calls []map[string]interface{}
-				_, _, err := supaClient.From("calls").
+				_, err := supaClient.From("calls").
 					Select("*", "exact", false).
 					Eq("caller", msg.Receiver).
 					Eq("callee", msg.Sender).
@@ -482,8 +488,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 						"status":   msg.Signal.CallStatus,
 						"end_time": time.Now(),
 					}
-					_, _, err = supaClient.From("calls").
-						Update(updateCall, "", "").
+					_, err = supaClient.From("calls").
+						Update(updateCall).
 						Eq("id", fmt.Sprintf("%v", calls[0]["id"])).
 						ExecuteTo(&calls)
 					if err != nil {
