@@ -121,9 +121,6 @@ func main() {
 	// Initialize router
 	r := mux.NewRouter()
 
-	// Serve static files
-	r.PathPrefix("/frontend/").Handler(http.StripPrefix("/frontend/", http.FileServer(http.Dir("./frontend"))))
-
 	// API routes
 	r.HandleFunc("/register", registerHandler).Methods("POST")
 	r.HandleFunc("/login", loginHandler).Methods("POST")
@@ -325,7 +322,7 @@ func registerPushHandler(w http.ResponseWriter, r *http.Request) {
 		client = &Client{}
 	}
 	client.PushToken = pushReg.Token
-	clients[pushReg.Username] = client
+	clients[username] = client
 	clientsMutex.Unlock()
 
 	log.Printf("Push token registered for user: %s", pushReg.Username)
