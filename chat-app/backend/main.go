@@ -186,7 +186,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		"password": user.Password, // In production, hash the password
 	}
 	var result []map[string]interface{}
-	_, err = supaClient.From("users").Insert(newUser).ExecuteTo(&result)
+	_, err = supaClient.From("users").Insert(newUser, false, "", "representation", "exact").ExecuteTo(&result)
 	if err != nil {
 		log.Printf("Error registering user in Supabase: %v", err)
 		http.Error(w, "Failed to register user", http.StatusInternalServerError)
@@ -399,7 +399,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 				"type":      msg.Type,
 			}
 			var result []map[string]interface{}
-			_, err = supaClient.From("messages").Insert(newMessage).ExecuteTo(&result)
+			_, err = supaClient.From("messages").Insert(newMessage, false, "", "representation", "exact").ExecuteTo(&result)
 			if err != nil {
 				log.Printf("Error storing message in Supabase: %v", err)
 				continue
@@ -471,7 +471,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 					"status":     "initiated",
 				}
 				var result []map[string]interface{}
-				_, err = supaClient.From("calls").Insert(newCall).ExecuteTo(&result)
+				_, err = supaClient.From("calls").Insert(newCall, false, "", "representation", "exact").ExecuteTo(&result)
 				if err != nil {
 					log.Printf("Error storing call in Supabase: %v", err)
 				}
@@ -489,7 +489,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 						"end_time": time.Now(),
 					}
 					_, err = supaClient.From("calls").
-						Update(updateCall).
+						Update(updateCall, "representation", "exact").
 						Eq("id", fmt.Sprintf("%v", calls[0]["id"])).
 						ExecuteTo(&calls)
 					if err != nil {
