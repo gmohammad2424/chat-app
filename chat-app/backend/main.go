@@ -322,7 +322,7 @@ func registerPushHandler(w http.ResponseWriter, r *http.Request) {
 		client = &Client{}
 	}
 	client.PushToken = pushReg.Token
-	clients[username] = client
+	clients[pushReg.Username] = client // Fixed: Replaced 'username' with 'pushReg.Username'
 	clientsMutex.Unlock()
 
 	log.Printf("Push token registered for user: %s", pushReg.Username)
