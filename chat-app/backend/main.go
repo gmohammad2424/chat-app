@@ -29,6 +29,7 @@ var (
 	fcmClient    *messaging.Client          // Firebase Cloud Messaging client
 	supaClient   *supabaseClient.Client     // Supabase client
 	jwtSecret    string                     // JWT secret from environment
+	fcmEnabled   bool                       // Flag to indicate if FCM is enabled
 )
 
 // Client struct to store WebSocket connection and push token
@@ -109,13 +110,51 @@ func main() {
 
 	// Initialize Firebase
 	ctx := context.Background()
-	app, err := firebase.NewApp(ctx, nil)
-	if err != nil {
-		log.Fatalf("Error initializing Firebase app: %v\n", err)
-	}
-	fcmClient, err = app.Messaging(ctx)
-	if err != nil {
-		log.Fatalf("Error initializing FCM client: %v\n", err)
+	credentialsPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credentialsPath == "" {
+		log.Println("GOOGLE_APPLICATION_CREDENTIALS not set, push notifications will be disabled")
+		fcmEnabled = false
+	} else {
+		log.Printf("Using Firebase credentials from GOOGLE_APPLICATION_CREDENTIALS: %s", credentialsPath)
+
+		// Check both possible paths for the credentials file
+		var foundCredentials bool
+		possiblePaths := []string{
+			credentialsPath,
+			"/etc/secrets/firebase-adminsdk.json", // Alternative path in Render.com
+		}
+
+		for _, path := range possiblePaths {
+			log.Printf("Checking for Firebase credentials at: %s", path)
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				log.Printf("Firebase credentials file not found at %s", path)
+				continue
+			}
+
+			// Temporarily set GOOGLE_APPLICATION_CREDENTIALS to the found path
+			os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", path)
+			log.Printf("Set GOOGLE_APPLICATION_CREDENTIALS to %s for Firebase initialization", path)
+
+			app, err := firebase.NewApp(ctx, nil)
+			if err != nil {
+				log.Printf("Error initializing Firebase app with credentials at %s: %v", path, err)
+				continue
+			}
+
+			fcmClient, err = app.Messaging(ctx)
+			if err != nil {
+				log.Printf("Error initializing FCM client with credentials at %s: %v", path, err)
+				continue
+			}
+
+			fcmEnabled = true
+			log.Println("Firebase Cloud Messaging initialized successfully")
+			break
+		}
+
+		if !fcmEnabled {
+			log.Println("Firebase credentials not found or invalid in any path, push notifications will be disabled")
+		}
 	}
 
 	// Initialize router
@@ -322,7 +361,7 @@ func registerPushHandler(w http.ResponseWriter, r *http.Request) {
 		client = &Client{}
 	}
 	client.PushToken = pushReg.Token
-	clients[pushReg.Username] = client // Fixed: Replaced 'username' with 'pushReg.Username'
+	clients[pushReg.Username] = client
 	clientsMutex.Unlock()
 
 	log.Printf("Push token registered for user: %s", pushReg.Username)
@@ -411,6 +450,11 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 					log.Println("WebSocket write error:", err)
 				}
 			} else if exists && receiverClient.PushToken != "" {
+				if !fcmEnabled {
+					log.Printf("Push notifications disabled, skipping notification to %s", msg.Receiver)
+					clientsMutex.Unlock()
+					continue
+				}
 				message := &messaging.Message{
 					Notification: &messaging.Notification{
 						Title: fmt.Sprintf("New message from %s", msg.Sender),
@@ -437,6 +481,11 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 					log.Println("WebSocket write error:", err)
 				}
 			} else if exists && receiverClient.PushToken != "" && msg.Signal.Type == "call-initiate" {
+				if !fcmEnabled {
+					log.Printf("Push notifications disabled, skipping call notification to %s", msg.Receiver)
+					clientsMutex.Unlock()
+					continue
+				}
 				// Notify receiver of incoming call
 				message := &messaging.Message{
 					Notification: &messaging.Notification{
