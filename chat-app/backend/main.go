@@ -1,6 +1,7 @@
 package main
 
 import (
+    "bytes"
     "context"
     "encoding/json"
     "fmt"
@@ -344,7 +345,6 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
     }
 }
 
-// Upload handler for files
 // Upload handler for files (HTTP fallback)
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
     // Parse multipart form
@@ -407,6 +407,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
     json.NewEncoder(w).Encode(map[string]string{"file_url": fileURL})
 }
+
 // Messages handler
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
     chatID := r.URL.Query().Get("chat_id")
