@@ -293,7 +293,7 @@
                 const registration = await navigator.serviceWorker.register('/sw.js');
                 const subscription = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
-                    applicationServerKey: 'YOUR_VAPID_PUBLIC_KEY' // Replace with your VAPID public key
+                    applicationServerKey: 'BJPmu7lxFqlwyEnBJPfSYdfpqDi_A4EoOmt4fSYqvmjY8IIo44D6vbKQkZGTfx9rcCfxZ4ykHHSacmlo-GkhBeY' // Replace with your VAPID public key
                 });
 
                 await fetch('https://chat-backend-gxh8.onrender.com/register-push', {
