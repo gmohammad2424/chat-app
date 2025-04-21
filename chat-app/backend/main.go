@@ -1,13 +1,11 @@
 package main
 
 import (
-    "bytes"
     "context"
     "encoding/json"
     "fmt"
     "io"
     "log"
-    "net/http"
     "os"
     "strings"
     "sync"
@@ -164,6 +162,7 @@ func main() {
 
     // API routes
     r.HandleFunc("/register", registerHandler).Methods("POST")
+    r.HandleFunc("/signup", signupHandler).Methods("POST") // Add /signup endpoint
     r.HandleFunc("/login", loginHandler).Methods("POST")
     r.HandleFunc("/messages", authMiddleware(messagesHandler)).Methods("GET")
     r.HandleFunc("/upload", authMiddleware(uploadHandler)).Methods("POST")
@@ -247,6 +246,83 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
 }
 
+// Signup handler (alias for register, but returns a token and chat_id)
+func signupHandler(w http.ResponseWriter, r *http.Request) {
+    var user struct {
+        Username string `json:"username"`
+        Email    string `json:"email"`
+        Password string `json:"password"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+        log.Printf("Invalid request body for /signup: %v", err)
+        http.Error(w, "Invalid request", http.StatusBadRequest)
+        return
+    }
+
+    if user.Username == "" || user.Email == "" || user.Password == "" {
+        log.Println("Username, email, or password missing in /signup request")
+        http.Error(w, "Username, email, and password are required", http.StatusBadRequest)
+        return
+    }
+
+    // Check if user exists
+    var existingUsers []map[string]interface{}
+    data, err := supaClient.From("users").Select("*", "exact", false).Eq("username", user.Username).ExecuteTo(&existingUsers)
+    if err != nil {
+        log.Printf("Error checking user in Supabase: %v, response data: %s", err, string(data))
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    if len(existingUsers) > 0 {
+        log.Printf("Username %s already exists", user.Username)
+        http.Error(w, "Username already exists", http.StatusConflict)
+        return
+    }
+
+    // Hash the password
+    hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+    if err != nil {
+        log.Printf("Error hashing password for user %s: %v", user.Username, err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    // Insert new user
+    newUser := map[string]interface{}{
+        "username": user.Username,
+        "email":    user.Email,
+        "password": string(hashedPassword),
+    }
+    var result []map[string]interface{}
+    _, err = supaClient.From("users").Insert(newUser, false, "", "representation", "exact").ExecuteTo(&result)
+    if err != nil {
+        log.Printf("Error registering user %s in Supabase: %v", user.Username, err)
+        http.Error(w, "Failed to register user", http.StatusInternalServerError)
+        return
+    }
+
+    // Generate JWT
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+        "username": user.Username,
+        "exp":      time.Now().Add(time.Hour * 24).Unix(),
+    })
+
+    tokenString, err := token.SignedString([]byte(jwtSecret))
+    if err != nil {
+        log.Printf("Error generating JWT for user %s: %v", user.Username, err)
+        http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+        return
+    }
+
+    log.Printf("User signed up successfully: %s", user.Username)
+    // Return token and a partial chat_id (to be completed in chat.html)
+    json.NewEncoder(w).Encode(map[string]string{
+        "token":   tokenString,
+        "chat_id": user.Username + ":", // Partial chat_id, e.g., "alice:"
+    })
+}
+
 // Login handler
 func loginHandler(w http.ResponseWriter, r *http.Request) {
     var creds struct {
@@ -312,7 +388,11 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     log.Printf("Login successful for user: %s", creds.Username)
-    json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
+    // Return token and a partial chat_id (to be completed in chat.html)
+    json.NewEncoder(w).Encode(map[string]string{
+        "token":   tokenString,
+        "chat_id": creds.Username + ":", // Partial chat_id, e.g., "alice:"
+    })
 }
 
 // Authentication middleware
@@ -345,7 +425,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
     }
 }
 
-// Upload handler for files (HTTP fallback)
+// Upload handler for files
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
     // Parse multipart form
     err := r.ParseMultipartForm(10 << 20) // 10 MB limit
@@ -371,32 +451,11 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Upload to Supabase Storage via HTTP
+    // Upload to Supabase Storage
     filePath := fmt.Sprintf("chat-files/%s-%d", handler.Filename, time.Now().UnixNano())
-    uploadURL := fmt.Sprintf("%s/storage/v1/object/chat-files/%s", os.Getenv("SUPABASE_URL"), filePath)
-
-    req, err := http.NewRequest("POST", uploadURL, bytes.NewReader(fileBytes))
-    if err != nil {
-        log.Printf("Error creating upload request: %v", err)
-        http.Error(w, "Failed to upload file", http.StatusInternalServerError)
-        return
-    }
-
-    req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_KEY"))
-    req.Header.Set("Content-Type", handler.Header.Get("Content-Type"))
-
-    client := &http.Client{}
-    resp, err := client.Do(req)
+    _, err = supaClient.Storage.From("chat-files").Upload(filePath, fileBytes)
     if err != nil {
         log.Printf("Error uploading file to Supabase Storage: %v", err)
-        http.Error(w, "Failed to upload file", http.StatusInternalServerError)
-        return
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        body, _ := io.ReadAll(resp.Body)
-        log.Printf("Error uploading file to Supabase Storage: %s, response: %s", resp.Status, string(body))
         http.Error(w, "Failed to upload file", http.StatusInternalServerError)
         return
     }
