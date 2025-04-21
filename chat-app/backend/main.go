@@ -362,7 +362,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     }
     defer file.Close()
 
-    // Upload to Supabase Storage
+    // Read file bytes
     fileBytes, err := io.ReadAll(file)
     if err != nil {
         log.Printf("Error reading file: %v", err)
@@ -370,8 +370,9 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Upload to Supabase Storage
     filePath := fmt.Sprintf("chat-files/%s-%d", handler.Filename, time.Now().UnixNano())
-    _, err = supaClient.Storage.From("chat-files").Upload(filePath, fileBytes)
+    _, err = supaClient.Storage().Bucket("chat-files").Upload(filePath, fileBytes, nil)
     if err != nil {
         log.Printf("Error uploading file to Supabase Storage: %v", err)
         http.Error(w, "Failed to upload file", http.StatusInternalServerError)
