@@ -168,6 +168,7 @@ func main() {
     r.HandleFunc("/login", loginHandler).Methods("POST")
     r.HandleFunc("/messages", authMiddleware(messagesHandler)).Methods("GET")
     r.HandleFunc("/upload", authMiddleware(uploadHandler)).Methods("POST")
+    r.HandleFunc("/file/{path:.*}", authMiddleware(fileHandler)).Methods("GET")
     r.HandleFunc("/register-push", authMiddleware(registerPushHandler)).Methods("POST")
     r.HandleFunc("/ws", wsHandler).Methods("GET")
 
@@ -487,11 +488,70 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Get public URL
-    fileURL := fmt.Sprintf("%s/storage/v1/object/public/%s/%s", os.Getenv("SUPABASE_URL"), bucket, filePath)
-    log.Printf("File uploaded successfully: %s", fileURL)
+    // Return a URL to the backend's file serving endpoint
+    backendURL := os.Getenv("BACKEND_URL")
+    if backendURL == "" {
+        backendURL = "https://chat-backend-gxh8.onrender.com" // Fallback to Render URL
+    }
+    fileURL := fmt.Sprintf("%s/file/%s", backendURL, filePath)
+    log.Printf("File uploaded successfully, accessible at: %s", fileURL)
 
     json.NewEncoder(w).Encode(map[string]string{"file_url": fileURL})
+}
+
+// File handler to serve files from Supabase Storage
+func fileHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    filePath := vars["path"]
+
+    // Fetch file from Supabase Storage using HTTP request
+    downloadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), "chat-files", filePath)
+    req, err := http.NewRequest("GET", downloadURL, nil)
+    if err != nil {
+        log.Printf("Error creating HTTP request for file download: %v", err)
+        http.Error(w, "Failed to fetch file", http.StatusInternalServerError)
+        return
+    }
+
+    // Set headers for Supabase Storage API
+    req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_KEY"))
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        log.Printf("Error downloading file from Supabase Storage: %v", err)
+        http.Error(w, "Failed to fetch file", http.StatusInternalServerError)
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        log.Printf("Error downloading file from Supabase Storage: %s, response: %s", resp.Status, string(body))
+        http.Error(w, "Failed to fetch file", http.StatusInternalServerError)
+        return
+    }
+
+    // Set content type based on file extension (simplified)
+    contentType := "application/octet-stream"
+    if strings.HasSuffix(filePath, ".jpg") || strings.HasSuffix(filePath, ".jpeg") {
+        contentType = "image/jpeg"
+    } else if strings.HasSuffix(filePath, ".png") {
+        contentType = "image/png"
+    } else if strings.HasSuffix(filePath, ".mp4") {
+        contentType = "video/mp4"
+    }
+    w.Header().Set("Content-Type", contentType)
+
+    // Stream the file to the client
+    _, err = io.Copy(w, resp.Body)
+    if err != nil {
+        log.Printf("Error streaming file to client: %v", err)
+        http.Error(w, "Failed to stream file", http.StatusInternalServerError)
+        return
+    }
+
+    log.Printf("File served successfully: %s", filePath)
 }
 
 // Messages handler
