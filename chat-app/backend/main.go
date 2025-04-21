@@ -425,6 +425,17 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
             return
         }
 
+        // Add the username to the request context for use in handlers
+        claims, ok := token.Claims.(jwt.MapClaims)
+        if !ok || claims["username"] == nil {
+            log.Println("Invalid token claims")
+            http.Error(w, "Invalid token", http.StatusUnauthorized)
+            return
+        }
+        username := claims["username"].(string)
+        ctx := context.WithValue(r.Context(), "username", username)
+        r = r.WithContext(ctx)
+
         log.Println("Token validated successfully")
         next.ServeHTTP(w, r)
     }
@@ -504,6 +515,40 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     filePath := vars["path"]
 
+    // Get the username from the request context (set by authMiddleware)
+    username, ok := r.Context().Value("username").(string)
+    if !ok {
+        log.Println("Username not found in request context")
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    // Construct the file URL to match against the messages table
+    backendURL := os.Getenv("BACKEND_URL")
+    if backendURL == "" {
+        backendURL = "https://chat-backend-gxh8.onrender.com"
+    }
+    fileURL := fmt.Sprintf("%s/file/%s", backendURL, filePath)
+
+    // Check if the file belongs to a message that the user has access to
+    var messages []Message
+    _, err := supaClient.From("messages").
+        Select("*", "exact", false).
+        Eq("file_url", fileURL).
+        Or(fmt.Sprintf("sender.eq.%s", username), fmt.Sprintf("receiver.eq.%s", username)).
+        ExecuteTo(&messages)
+    if err != nil {
+        log.Printf("Error checking file access in messages table: %v", err)
+        http.Error(w, "Failed to verify access", http.StatusInternalServerError)
+        return
+    }
+
+    if len(messages) == 0 {
+        log.Printf("User %s does not have access to file %s", username, filePath)
+        http.Error(w, "Forbidden", http.StatusForbidden)
+        return
+    }
+
     // Fetch file from Supabase Storage using HTTP request
     downloadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), "chat-files", filePath)
     req, err := http.NewRequest("GET", downloadURL, nil)
@@ -551,7 +596,7 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("File served successfully: %s", filePath)
+    log.Printf("File served successfully to user %s: %s", username, filePath)
 }
 
 // Messages handler
