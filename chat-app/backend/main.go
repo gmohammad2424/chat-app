@@ -4,6 +4,7 @@ import (
     "context"
     "encoding/json"
     "fmt"
+    "io"
     "log"
     "net/http"
     "os"
@@ -164,6 +165,7 @@ func main() {
     r.HandleFunc("/register", registerHandler).Methods("POST")
     r.HandleFunc("/login", loginHandler).Methods("POST")
     r.HandleFunc("/messages", authMiddleware(messagesHandler)).Methods("GET")
+    r.HandleFunc("/upload", authMiddleware(uploadHandler)).Methods("POST")
     r.HandleFunc("/register-push", authMiddleware(registerPushHandler)).Methods("POST")
     r.HandleFunc("/ws", wsHandler).Methods("GET")
 
@@ -342,6 +344,47 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
     }
 }
 
+// Upload handler for files
+func uploadHandler(w http.ResponseWriter, r *http.Request) {
+    // Parse multipart form
+    err := r.ParseMultipartForm(10 << 20) // 10 MB limit
+    if err != nil {
+        log.Printf("Error parsing multipart form: %v", err)
+        http.Error(w, "Failed to parse form", http.StatusBadRequest)
+        return
+    }
+
+    file, handler, err := r.FormFile("file")
+    if err != nil {
+        log.Printf("Error retrieving file from form: %v", err)
+        http.Error(w, "Failed to retrieve file", http.StatusBadRequest)
+        return
+    }
+    defer file.Close()
+
+    // Upload to Supabase Storage
+    fileBytes, err := io.ReadAll(file)
+    if err != nil {
+        log.Printf("Error reading file: %v", err)
+        http.Error(w, "Failed to read file", http.StatusInternalServerError)
+        return
+    }
+
+    filePath := fmt.Sprintf("chat-files/%s-%d", handler.Filename, time.Now().UnixNano())
+    _, err = supaClient.Storage.From("chat-files").Upload(filePath, fileBytes)
+    if err != nil {
+        log.Printf("Error uploading file to Supabase Storage: %v", err)
+        http.Error(w, "Failed to upload file", http.StatusInternalServerError)
+        return
+    }
+
+    // Get public URL
+    fileURL := fmt.Sprintf("%s/storage/v1/object/public/chat-files/%s", os.Getenv("SUPABASE_URL"), filePath)
+    log.Printf("File uploaded successfully: %s", fileURL)
+
+    json.NewEncoder(w).Encode(map[string]string{"file_url": fileURL})
+}
+
 // Messages handler
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
     chatID := r.URL.Query().Get("chat_id")
@@ -493,22 +536,26 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         // Handle different message types
         switch msg.Type {
         case "text", "file":
-            // Store message in Supabase
-            newMessage := map[string]interface{}{
-                "sender":    msg.Sender,
-                "receiver":  msg.Receiver,
-                "content":   msg.Content,
-                "file_url":  msg.FileURL,
-                "file_type": msg.FileType,
-                "timestamp": msg.Timestamp,
-                "status":    msg.Status,
-                "type":      msg.Type,
-            }
-            var result []map[string]interface{}
-            _, err = supaClient.From("messages").Insert(newMessage, false, "", "representation", "exact").ExecuteTo(&result)
-            if err != nil {
-                log.Printf("Error storing message in Supabase for user %s: %v", username, err)
-                continue
+            // Store message in Supabase (skip if ephemeral)
+            if msg.Status != "ephemeral" {
+                newMessage := map[string]interface{}{
+                    "sender":    msg.Sender,
+                    "receiver":  msg.Receiver,
+                    "content":   msg.Content,
+                    "file_url":  msg.FileURL,
+                    "file_type": msg.FileType,
+                    "timestamp": msg.Timestamp,
+                    "status":    msg.Status,
+                    "type":      msg.Type,
+                }
+                var result []map[string]interface{}
+                _, err = supaClient.From("messages").Insert(newMessage, false, "", "representation", "exact").ExecuteTo(&result)
+                if err != nil {
+                    log.Printf("Error storing message in Supabase for user %s: %v", username, err)
+                    continue
+                }
+            } else {
+                log.Printf("Ephemeral message from %s to %s, not stored in Supabase", msg.Sender, msg.Receiver)
             }
 
             // Send to receiver
