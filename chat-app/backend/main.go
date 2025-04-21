@@ -6,7 +6,7 @@ import (
     "fmt"
     "io"
     "log"
-    "net/http" // Added missing import
+    "net/http"
     "os"
     "strings"
     "sync"
@@ -163,7 +163,7 @@ func main() {
 
     // API routes
     r.HandleFunc("/register", registerHandler).Methods("POST")
-    r.HandleFunc("/signup", signupHandler).Methods("POST") // Add /signup endpoint
+    r.HandleFunc("/signup", signupHandler).Methods("POST")
     r.HandleFunc("/login", loginHandler).Methods("POST")
     r.HandleFunc("/messages", authMiddleware(messagesHandler)).Methods("GET")
     r.HandleFunc("/upload", authMiddleware(uploadHandler)).Methods("POST")
@@ -303,9 +303,10 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Generate JWT
+    // Generate JWT with sub claim for RLS
     token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-        "username": user.Username,
+        "sub":      user.Username, // Add sub claim for Supabase RLS
+        "username": user.Username, // Keep for app logic
         "exp":      time.Now().Add(time.Hour * 24).Unix(),
     })
 
@@ -375,9 +376,10 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Generate JWT
+    // Generate JWT with sub claim for RLS
     token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-        "username": creds.Username,
+        "sub":      creds.Username, // Add sub claim for Supabase RLS
+        "username": creds.Username, // Keep for app logic
         "exp":      time.Now().Add(time.Hour * 24).Unix(),
     })
 
@@ -453,8 +455,10 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Upload to Supabase Storage
-    filePath := fmt.Sprintf("chat-files/%s-%d", handler.Filename, time.Now().UnixNano())
-    _, err = supaClient.Storage.From("chat-files").Upload(filePath, fileBytes)
+    bucket := "chat-files"
+    filePath := fmt.Sprintf("%s/%s-%d", bucket, handler.Filename, time.Now().UnixNano())
+    // Use the correct method to upload the file to Supabase Storage
+    _, err = supaClient.Storage.Upload(filePath, fileBytes)
     if err != nil {
         log.Printf("Error uploading file to Supabase Storage: %v", err)
         http.Error(w, "Failed to upload file", http.StatusInternalServerError)
@@ -462,7 +466,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Get public URL
-    fileURL := fmt.Sprintf("%s/storage/v1/object/public/chat-files/%s", os.Getenv("SUPABASE_URL"), filePath)
+    fileURL := fmt.Sprintf("%s/storage/v1/object/public/%s", os.Getenv("SUPABASE_URL"), filePath)
     log.Printf("File uploaded successfully: %s", fileURL)
 
     json.NewEncoder(w).Encode(map[string]string{"file_url": fileURL})
