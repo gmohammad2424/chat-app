@@ -192,11 +192,13 @@ func main() {
 func registerHandler(w http.ResponseWriter, r *http.Request) {
     var user User
     if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+        log.Printf("Invalid request body for /register: %v", err)
         http.Error(w, "Invalid request", http.StatusBadRequest)
         return
     }
 
     if user.Username == "" || user.Password == "" {
+        log.Println("Username or password missing in /register request")
         http.Error(w, "Username and password are required", http.StatusBadRequest)
         return
     }
@@ -205,13 +207,13 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     var existingUsers []map[string]interface{}
     data, err := supaClient.From("users").Select("*", "exact", false).Eq("username", user.Username).ExecuteTo(&existingUsers)
     if err != nil {
-        log.Printf("Error checking user in Supabase: %v", err)
-        log.Printf("Response data: %s", string(data))
+        log.Printf("Error checking user in Supabase: %v, response data: %s", err, string(data))
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
     if len(existingUsers) > 0 {
+        log.Printf("Username %s already exists", user.Username)
         http.Error(w, "Username already exists", http.StatusConflict)
         return
     }
@@ -219,7 +221,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     // Hash the password
     hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
     if err != nil {
-        log.Printf("Error hashing password: %v", err)
+        log.Printf("Error hashing password for user %s: %v", user.Username, err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
@@ -232,12 +234,12 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     var result []map[string]interface{}
     _, err = supaClient.From("users").Insert(newUser, false, "", "representation", "exact").ExecuteTo(&result)
     if err != nil {
-        log.Printf("Error registering user in Supabase: %v", err)
+        log.Printf("Error registering user %s in Supabase: %v", user.Username, err)
         http.Error(w, "Failed to register user", http.StatusInternalServerError)
         return
     }
 
-    log.Printf("User registered: %s", user.Username)
+    log.Printf("User registered successfully: %s", user.Username)
     w.WriteHeader(http.StatusCreated)
     json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
 }
@@ -249,11 +251,15 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         Password string `json:"password"`
     }
     if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+        log.Printf("Invalid request body for /login: %v", err)
         http.Error(w, "Invalid request", http.StatusBadRequest)
         return
     }
 
+    log.Printf("Login attempt for user: %s", creds.Username)
+
     if creds.Username == "" || creds.Password == "" {
+        log.Println("Username or password missing in /login request")
         http.Error(w, "Invalid credentials", http.StatusBadRequest)
         return
     }
@@ -262,12 +268,13 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     var users []map[string]interface{}
     _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).ExecuteTo(&users)
     if err != nil {
-        log.Printf("Error fetching user from Supabase: %v", err)
+        log.Printf("Error fetching user %s from Supabase: %v", creds.Username, err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
     if len(users) == 0 {
+        log.Printf("User %s not found in Supabase", creds.Username)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
         return
     }
@@ -275,6 +282,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     user := users[0]
     storedPassword, ok := user["password"].(string)
     if !ok {
+        log.Printf("Invalid password format for user %s in Supabase", creds.Username)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
         return
     }
@@ -282,6 +290,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     // Compare hashed password
     err = bcrypt.CompareHashAndPassword([]byte(storedPassword), []byte(creds.Password))
     if err != nil {
+        log.Printf("Password mismatch for user %s: %v", creds.Username, err)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
         return
     }
@@ -289,23 +298,27 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     // Generate JWT
     token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
         "username": creds.Username,
-        "exp":      time.Now().Add(time.Hour * 24).Unix(), // Increased to 24 hours
+        "exp":      time.Now().Add(time.Hour * 24).Unix(),
     })
 
     tokenString, err := token.SignedString([]byte(jwtSecret))
     if err != nil {
+        log.Printf("Error generating JWT for user %s: %v", creds.Username, err)
         http.Error(w, "Failed to generate token", http.StatusInternalServerError)
         return
     }
 
+    log.Printf("Login successful for user: %s", creds.Username)
     json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
 }
 
 // Authentication middleware
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
+        log.Printf("Incoming request to %s", r.URL.Path)
         authHeader := r.Header.Get("Authorization")
         if authHeader == "" {
+            log.Println("Authorization header missing")
             http.Error(w, "Token is required", http.StatusForbidden)
             return
         }
@@ -319,10 +332,12 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
         })
 
         if err != nil || !token.Valid {
+            log.Printf("Invalid token: %v", err)
             http.Error(w, "Invalid token", http.StatusUnauthorized)
             return
         }
 
+        log.Println("Token validated successfully")
         next.ServeHTTP(w, r)
     }
 }
@@ -331,17 +346,20 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
     chatID := r.URL.Query().Get("chat_id")
     if chatID == "" {
+        log.Println("Chat ID missing in /messages request")
         http.Error(w, "Chat ID is required", http.StatusBadRequest)
         return
     }
 
     parts := strings.Split(chatID, ":")
     if len(parts) != 2 {
+        log.Printf("Invalid chat ID format: %s", chatID)
         http.Error(w, "Invalid chat ID format", http.StatusBadRequest)
         return
     }
     sender, receiver := parts[0], parts[1]
 
+    log.Printf("Fetching messages for chat ID %s (sender: %s, receiver: %s)", chatID, sender, receiver)
     var messages []Message
     _, err := supaClient.From("messages").
         Select("*", "exact", false).
@@ -354,6 +372,7 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    log.Printf("Fetched %d messages for chat ID %s", len(messages), chatID)
     json.NewEncoder(w).Encode(messages)
 }
 
@@ -361,11 +380,13 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 func registerPushHandler(w http.ResponseWriter, r *http.Request) {
     var pushReg PushRegistration
     if err := json.NewDecoder(r.Body).Decode(&pushReg); err != nil {
+        log.Printf("Invalid request body for /register-push: %v", err)
         http.Error(w, "Invalid request", http.StatusBadRequest)
         return
     }
 
     if pushReg.Username == "" || pushReg.Token == "" {
+        log.Println("Username or token missing in /register-push request")
         http.Error(w, "Username and token are required", http.StatusBadRequest)
         return
     }
@@ -388,20 +409,26 @@ func registerPushHandler(w http.ResponseWriter, r *http.Request) {
 func wsHandler(w http.ResponseWriter, r *http.Request) {
     username := r.URL.Query().Get("username")
     if username == "" {
+        log.Println("Username missing in /ws request")
         http.Error(w, "Username is required", http.StatusBadRequest)
         return
     }
+
+    log.Printf("WebSocket connection attempt for user: %s", username)
 
     // Check for token in Authorization header or query string
     tokenString := r.Header.Get("Authorization")
     if tokenString != "" {
         tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+        log.Println("Token found in Authorization header")
     } else {
         tokenString = r.URL.Query().Get("token")
         if tokenString == "" {
+            log.Println("Token missing in both Authorization header and query string")
             http.Error(w, "Token is required", http.StatusForbidden)
             return
         }
+        log.Println("Token found in query string")
     }
 
     // Validate token
@@ -413,14 +440,17 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
     })
 
     if err != nil || !token.Valid {
+        log.Printf("Invalid token for WebSocket connection: %v", err)
         http.Error(w, "Invalid token", http.StatusUnauthorized)
         return
     }
 
+    log.Println("WebSocket token validated successfully")
+
     // Upgrade to WebSocket
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {
-        log.Println("WebSocket upgrade error:", err)
+        log.Printf("WebSocket upgrade error for user %s: %v", username, err)
         return
     }
 
@@ -453,7 +483,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         var msg Message
         err := conn.ReadJSON(&msg)
         if err != nil {
-            log.Println("WebSocket read error:", err)
+            log.Printf("WebSocket read error for user %s: %v", username, err)
             break
         }
 
@@ -477,7 +507,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             var result []map[string]interface{}
             _, err = supaClient.From("messages").Insert(newMessage, false, "", "representation", "exact").ExecuteTo(&result)
             if err != nil {
-                log.Printf("Error storing message in Supabase: %v", err)
+                log.Printf("Error storing message in Supabase for user %s: %v", username, err)
                 continue
             }
 
@@ -487,7 +517,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             if exists && receiverClient.Conn != nil {
                 err = receiverClient.Conn.WriteJSON(msg)
                 if err != nil {
-                    log.Println("WebSocket write error:", err)
+                    log.Printf("WebSocket write error for user %s to receiver %s: %v", username, msg.Receiver, err)
                 }
             } else if exists && receiverClient.PushToken != "" {
                 if !fcmEnabled {
@@ -518,7 +548,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             if exists && receiverClient.Conn != nil {
                 err = receiverClient.Conn.WriteJSON(msg)
                 if err != nil {
-                    log.Println("WebSocket write error:", err)
+                    log.Printf("WebSocket write error for user %s to receiver %s: %v", username, msg.Receiver, err)
                 }
             } else if exists && receiverClient.PushToken != "" && msg.Signal.Type == "call-initiate" {
                 if !fcmEnabled {
@@ -559,7 +589,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 var result []map[string]interface{}
                 _, err = supaClient.From("calls").Insert(newCall, false, "", "representation", "exact").ExecuteTo(&result)
                 if err != nil {
-                    log.Printf("Error storing call in Supabase: %v", err)
+                    log.Printf("Error storing call in Supabase for user %s: %v", username, err)
                 }
             } else if msg.Signal.Type == "call-accept" || msg.Signal.Type == "call-reject" {
                 var calls []map[string]interface{}
