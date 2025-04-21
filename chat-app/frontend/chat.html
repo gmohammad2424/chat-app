@@ -104,13 +104,13 @@
         const urlParams = new URLSearchParams(window.location.search);
         const chatId = urlParams.get('chat_id');
         if (!chatId) {
-            alert('Chat ID is required');
+            alert('Chat ID is required. Please log in and specify a user to chat with.');
             window.location.href = '/login.html';
         }
 
         const [currentUser, otherUser] = chatId.split(':');
-        if (!currentUser || !otherUser) {
-            alert('Invalid chat ID format');
+        if (!currentUser || !otherUser || chatId === 'undefined' || currentUser === 'undefined' || otherUser === 'undefined') {
+            alert('Invalid chat ID format. Expected format: user1:user2');
             window.location.href = '/login.html';
         }
 
