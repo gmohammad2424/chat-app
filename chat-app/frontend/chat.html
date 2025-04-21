@@ -75,22 +75,48 @@
             border: 1px solid #ddd;
             border-radius: 4px;
         }
+        #chat-partner-prompt {
+            margin-bottom: 20px;
+        }
+        #chat-partner-input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        #start-chat-button {
+            padding: 8px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #start-chat-button:hover {
+            background-color: #0056b3;
+        }
     </style>
 </head>
 <body>
     <div id="chat-container">
-        <div id="messages"></div>
-        <div>
-            <input type="text" id="message-input" placeholder="Type a message...">
-            <button id="send-button">Send</button>
-            <button id="attach-button">📎</button>
-            <input type="file" id="file-input">
-            <button id="video-call-button">Video Call</button>
-            <button id="audio-call-button">Audio Call</button>
+        <div id="chat-partner-prompt">
+            <input type="text" id="chat-partner-input" placeholder="Enter username to chat with">
+            <button id="start-chat-button">Start Chat</button>
         </div>
-        <div id="call-container">
-            <video id="local-video" autoplay playsinline muted></video>
-            <video id="remote-video" autoplay playsinline></video>
+        <div id="chat-area" style="display: none;">
+            <div id="messages"></div>
+            <div>
+                <input type="text" id="message-input" placeholder="Type a message...">
+                <button id="send-button">Send</button>
+                <button id="attach-button">📎</button>
+                <input type="file" id="file-input">
+                <button id="video-call-button">Video Call</button>
+                <button id="audio-call-button">Audio Call</button>
+            </div>
+            <div id="call-container">
+                <video id="local-video" autoplay playsinline muted></video>
+                <video id="remote-video" autoplay playsinline></video>
+            </div>
         </div>
     </div>
 
@@ -102,18 +128,17 @@
         }
 
         const urlParams = new URLSearchParams(window.location.search);
-        const chatId = urlParams.get('chat_id');
+        let chatId = urlParams.get('chat_id');
         if (!chatId) {
-            alert('Chat ID is required. Please log in and specify a user to chat with.');
+            alert('Chat ID is required. Please log in again.');
             window.location.href = '/login.html';
         }
 
-        const [currentUser, otherUser] = chatId.split(':');
-        if (!currentUser || !otherUser || chatId === 'undefined' || currentUser === 'undefined' || otherUser === 'undefined') {
-            alert('Invalid chat ID format. Expected format: user1:user2');
-            window.location.href = '/login.html';
-        }
-
+        let currentUser, otherUser;
+        const chatPartnerPrompt = document.getElementById('chat-partner-prompt');
+        const chatPartnerInput = document.getElementById('chat-partner-input');
+        const startChatButton = document.getElementById('start-chat-button');
+        const chatArea = document.getElementById('chat-area');
         const messagesDiv = document.getElementById('messages');
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
@@ -129,6 +154,50 @@
         let localStream;
         let peerConnection;
         const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        // Parse initial chat_id and prompt for chat partner if needed
+        function initializeChat() {
+            const [user, other] = chatId.split(':');
+            if (!user || chatId === 'undefined' || user === 'undefined') {
+                alert('Invalid chat ID format. Please log in again.');
+                window.location.href = '/login.html';
+                return;
+            }
+
+            currentUser = user;
+            if (other && other !== '') {
+                otherUser = other;
+                startChat();
+            } else {
+                // Show prompt to enter chat partner's username
+                chatPartnerPrompt.style.display = 'block';
+            }
+        }
+
+        // Start the chat after selecting a chat partner
+        startChatButton.onclick = () => {
+            otherUser = chatPartnerInput.value.trim();
+            if (!otherUser) {
+                alert('Please enter a username to chat with');
+                return;
+            }
+            if (otherUser === currentUser) {
+                alert('You cannot chat with yourself');
+                return;
+            }
+
+            chatId = `${currentUser}:${otherUser}`;
+            // Update URL with the complete chat_id
+            history.pushState({}, '', `/chat.html?chat_id=${chatId}`);
+            startChat();
+        };
+
+        // Start the chat session
+        function startChat() {
+            chatPartnerPrompt.style.display = 'none';
+            chatArea.style.display = 'block';
+            initWebSocket();
+        }
 
         // Initialize WebSocket connection
         function initWebSocket() {
@@ -410,8 +479,8 @@
         videoCallButton.onclick = () => startCall('video');
         audioCallButton.onclick = () => startCall('audio');
 
-        // Initialize the WebSocket connection
-        initWebSocket();
+        // Initialize the chat
+        initializeChat();
 
         // Handle page unload to clean up
         window.onbeforeunload = () => {
