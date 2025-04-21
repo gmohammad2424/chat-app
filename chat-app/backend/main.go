@@ -1,6 +1,7 @@
 package main
 
 import (
+    "bytes"
     "context"
     "encoding/json"
     "fmt"
@@ -454,19 +455,40 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Upload to Supabase Storage
+    // Upload to Supabase Storage using HTTP request
     bucket := "chat-files"
-    filePath := fmt.Sprintf("%s/%s-%d", bucket, handler.Filename, time.Now().UnixNano())
-    // Use the correct method to upload the file to Supabase Storage
-    _, err = supaClient.Storage.Upload(filePath, fileBytes)
+    filePath := fmt.Sprintf("%s-%d", handler.Filename, time.Now().UnixNano())
+    uploadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucket, filePath)
+
+    req, err := http.NewRequest("POST", uploadURL, bytes.NewReader(fileBytes))
+    if err != nil {
+        log.Printf("Error creating HTTP request for file upload: %v", err)
+        http.Error(w, "Failed to upload file", http.StatusInternalServerError)
+        return
+    }
+
+    // Set headers for Supabase Storage API
+    req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_KEY"))
+    req.Header.Set("Content-Type", "application/octet-stream")
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
     if err != nil {
         log.Printf("Error uploading file to Supabase Storage: %v", err)
         http.Error(w, "Failed to upload file", http.StatusInternalServerError)
         return
     }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        log.Printf("Error uploading file to Supabase Storage: %s, response: %s", resp.Status, string(body))
+        http.Error(w, "Failed to upload file", http.StatusInternalServerError)
+        return
+    }
 
     // Get public URL
-    fileURL := fmt.Sprintf("%s/storage/v1/object/public/%s", os.Getenv("SUPABASE_URL"), filePath)
+    fileURL := fmt.Sprintf("%s/storage/v1/object/public/%s/%s", os.Getenv("SUPABASE_URL"), bucket, filePath)
     log.Printf("File uploaded successfully: %s", fileURL)
 
     json.NewEncoder(w).Encode(map[string]string{"file_url": fileURL})
