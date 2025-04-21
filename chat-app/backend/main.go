@@ -6,6 +6,7 @@ import (
     "fmt"
     "io"
     "log"
+    "net/http" // Added missing import
     "os"
     "strings"
     "sync"
