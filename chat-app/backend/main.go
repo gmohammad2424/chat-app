@@ -120,10 +120,9 @@ func main() {
     } else {
         log.Printf("Using Firebase credentials from GOOGLE_APPLICATION_CREDENTIALS: %s", credentialsPath)
 
-        // Check both possible paths for the credentials file
         possiblePaths := []string{
             credentialsPath,
-            "/etc/secrets/firebase-adminsdk.json", // Alternative path in Render.com
+            "/etc/secrets/firebase-adminsdk.json",
         }
 
         for _, path := range possiblePaths {
@@ -133,7 +132,6 @@ func main() {
                 continue
             }
 
-            // Temporarily set GOOGLE_APPLICATION_CREDENTIALS to the found path
             os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", path)
             log.Printf("Set GOOGLE_APPLICATION_CREDENTIALS to %s for Firebase initialization", path)
 
@@ -167,6 +165,7 @@ func main() {
     r.HandleFunc("/signup", signupHandler).Methods("POST")
     r.HandleFunc("/login", loginHandler).Methods("POST")
     r.HandleFunc("/messages", authMiddleware(messagesHandler)).Methods("GET")
+    r.HandleFunc("/allowed-chats", authMiddleware(allowedChatsHandler)).Methods("GET")
     r.HandleFunc("/upload", authMiddleware(uploadHandler)).Methods("POST")
     r.HandleFunc("/file/{path:.*}", authMiddleware(fileHandler)).Methods("GET")
     r.HandleFunc("/register-push", authMiddleware(registerPushHandler)).Methods("POST")
@@ -249,7 +248,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
 }
 
-// Signup handler (alias for register, but returns a token and chat_id)
+// Signup handler
 func signupHandler(w http.ResponseWriter, r *http.Request) {
     var user struct {
         Username string `json:"username"`
@@ -307,8 +306,8 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
     // Generate JWT with sub claim for RLS
     token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-        "sub":      user.Username, // Add sub claim for Supabase RLS
-        "username": user.Username, // Keep for app logic
+        "sub":      user.Username,
+        "username": user.Username,
         "exp":      time.Now().Add(time.Hour * 24).Unix(),
     })
 
@@ -320,10 +319,9 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     log.Printf("User signed up successfully: %s", user.Username)
-    // Return token and a partial chat_id (to be completed in chat.html)
     json.NewEncoder(w).Encode(map[string]string{
         "token":   tokenString,
-        "chat_id": user.Username + ":", // Partial chat_id, e.g., "alice:"
+        "chat_id": user.Username + ":", // Still needed for frontend, but won't allow user to choose receiver
     })
 }
 
@@ -380,8 +378,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
     // Generate JWT with sub claim for RLS
     token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-        "sub":      creds.Username, // Add sub claim for Supabase RLS
-        "username": creds.Username, // Keep for app logic
+        "sub":      creds.Username,
+        "username": creds.Username,
         "exp":      time.Now().Add(time.Hour * 24).Unix(),
     })
 
@@ -393,10 +391,9 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     log.Printf("Login successful for user: %s", creds.Username)
-    // Return token and a partial chat_id (to be completed in chat.html)
     json.NewEncoder(w).Encode(map[string]string{
         "token":   tokenString,
-        "chat_id": creds.Username + ":", // Partial chat_id, e.g., "alice:"
+        "chat_id": creds.Username + ":", // Still needed, but won't allow user to choose receiver
     })
 }
 
@@ -425,7 +422,6 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
             return
         }
 
-        // Add the username to the request context for use in handlers
         claims, ok := token.Claims.(jwt.MapClaims)
         if !ok || claims["username"] == nil {
             log.Println("Invalid token claims")
@@ -439,6 +435,55 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
         log.Println("Token validated successfully")
         next.ServeHTTP(w, r)
     }
+}
+
+// Check if two users are allowed to chat
+func canUsersChat(user1, user2 string) (bool, error) {
+    var chats []map[string]interface{}
+    _, err := supaClient.From("chats").
+        Select("*", "exact", false).
+        Or(fmt.Sprintf("and(user1.eq.%s,user2.eq.%s)", user1, user2), fmt.Sprintf("and(user1.eq.%s,user2.eq.%s)", user2, user1)).
+        ExecuteTo(&chats)
+    if err != nil {
+        return false, err
+    }
+    return len(chats) > 0, nil
+}
+
+// Allowed chats handler
+func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
+    username, ok := r.Context().Value("username").(string)
+    if !ok {
+        log.Println("Username not found in request context")
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    log.Printf("Fetching allowed chats for user: %s", username)
+    var chats []map[string]interface{}
+    _, err := supaClient.From("chats").
+        Select("*", "exact", false).
+        Or(fmt.Sprintf("user1.eq.%s", username), fmt.Sprintf("user2.eq.%s", username)).
+        ExecuteTo(&chats)
+    if err != nil {
+        log.Printf("Error fetching allowed chats from Supabase: %v", err)
+        http.Error(w, "Failed to fetch allowed chats", http.StatusInternalServerError)
+        return
+    }
+
+    allowedUsers := []string{}
+    for _, chat := range chats {
+        user1, _ := chat["user1"].(string)
+        user2, _ := chat["user2"].(string)
+        if user1 == username {
+            allowedUsers = append(allowedUsers, user2)
+        } else {
+            allowedUsers = append(allowedUsers, user1)
+        }
+    }
+
+    log.Printf("Found %d allowed chats for user %s", len(allowedUsers), username)
+    json.NewEncoder(w).Encode(allowedUsers)
 }
 
 // Upload handler for files
@@ -502,7 +547,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     // Return a URL to the backend's file serving endpoint
     backendURL := os.Getenv("BACKEND_URL")
     if backendURL == "" {
-        backendURL = "https://chat-backend-gxh8.onrender.com" // Fallback to Render URL
+        backendURL = "https://chat-backend-gxh8.onrender.com"
     }
     fileURL := fmt.Sprintf("%s/file/%s", backendURL, filePath)
     log.Printf("File uploaded successfully, accessible at: %s", fileURL)
@@ -515,7 +560,6 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     filePath := vars["path"]
 
-    // Get the username from the request context (set by authMiddleware)
     username, ok := r.Context().Value("username").(string)
     if !ok {
         log.Println("Username not found in request context")
@@ -523,14 +567,12 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Construct the file URL to match against the messages table
     backendURL := os.Getenv("BACKEND_URL")
     if backendURL == "" {
         backendURL = "https://chat-backend-gxh8.onrender.com"
     }
     fileURL := fmt.Sprintf("%s/file/%s", backendURL, filePath)
 
-    // Check if the file belongs to a message that the user has access to
     var messages []Message
     _, err := supaClient.From("messages").
         Select("*", "exact", false).
@@ -549,7 +591,6 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Fetch file from Supabase Storage using HTTP request
     downloadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), "chat-files", filePath)
     req, err := http.NewRequest("GET", downloadURL, nil)
     if err != nil {
@@ -558,7 +599,6 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Set headers for Supabase Storage API
     req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_KEY"))
 
     client := &http.Client{}
@@ -577,7 +617,6 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Set content type based on file extension (simplified)
     contentType := "application/octet-stream"
     if strings.HasSuffix(filePath, ".jpg") || strings.HasSuffix(filePath, ".jpeg") {
         contentType = "image/jpeg"
@@ -588,7 +627,6 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
     }
     w.Header().Set("Content-Type", contentType)
 
-    // Stream the file to the client
     _, err = io.Copy(w, resp.Body)
     if err != nil {
         log.Printf("Error streaming file to client: %v", err)
@@ -616,9 +654,35 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
     }
     sender, receiver := parts[0], parts[1]
 
+    username, ok := r.Context().Value("username").(string)
+    if !ok {
+        log.Println("Username not found in request context")
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    // Verify that the user is part of this chat and it's allowed in the chats table
+    if username != sender {
+        log.Printf("User %s does not match sender %s in chat ID", username, sender)
+        http.Error(w, "Forbidden", http.StatusForbidden)
+        return
+    }
+
+    allowed, err := canUsersChat(sender, receiver)
+    if err != nil {
+        log.Printf("Error checking if users can chat: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    if !allowed {
+        log.Printf("Chat between %s and %s is not allowed", sender, receiver)
+        http.Error(w, "Forbidden", http.StatusForbidden)
+        return
+    }
+
     log.Printf("Fetching messages for chat ID %s (sender: %s, receiver: %s)", chatID, sender, receiver)
     var messages []Message
-    _, err := supaClient.From("messages").
+    _, err = supaClient.From("messages").
         Select("*", "exact", false).
         Or(fmt.Sprintf("and(sender.eq.%s,receiver.eq.%s)", sender, receiver), fmt.Sprintf("and(sender.eq.%s,receiver.eq.%s)", receiver, sender)).
         Order("timestamp", &postgrest.OrderOpts{Ascending: true}).
@@ -673,7 +737,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
     log.Printf("WebSocket connection attempt for user: %s", username)
 
-    // Check for token in Authorization header or query string
     tokenString := r.Header.Get("Authorization")
     if tokenString != "" {
         tokenString = strings.TrimPrefix(tokenString, "Bearer ")
@@ -688,7 +751,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         log.Println("Token found in query string")
     }
 
-    // Validate token
     token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
         if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
             return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -704,14 +766,12 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
     log.Println("WebSocket token validated successfully")
 
-    // Upgrade to WebSocket
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {
         log.Printf("WebSocket upgrade error for user %s: %v", username, err)
         return
     }
 
-    // Register client
     clientsMutex.Lock()
     client, exists := clients[username]
     if !exists {
@@ -721,7 +781,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
     clients[username] = client
     clientsMutex.Unlock()
 
-    // Clean up on disconnect
     defer func() {
         clientsMutex.Lock()
         if client, exists := clients[username]; exists {
@@ -735,7 +794,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
     log.Printf("WebSocket connection established for user: %s", username)
 
-    // Handle incoming messages
     for {
         var msg Message
         err := conn.ReadJSON(&msg)
@@ -744,13 +802,21 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             break
         }
 
-        // Set timestamp
+        // Validate that the sender and receiver are allowed to chat
+        allowed, err := canUsersChat(msg.Sender, msg.Receiver)
+        if err != nil {
+            log.Printf("Error checking if users can chat: %v", err)
+            continue
+        }
+        if !allowed {
+            log.Printf("Chat between %s and %s is not allowed", msg.Sender, msg.Receiver)
+            continue
+        }
+
         msg.Timestamp = time.Now()
 
-        // Handle different message types
         switch msg.Type {
         case "text", "file":
-            // Store message in Supabase (skip if ephemeral)
             if msg.Status != "ephemeral" {
                 newMessage := map[string]interface{}{
                     "sender":    msg.Sender,
@@ -772,7 +838,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 log.Printf("Ephemeral message from %s to %s, not stored in Supabase", msg.Sender, msg.Receiver)
             }
 
-            // Send to receiver
             clientsMutex.Lock()
             receiverClient, exists := clients[msg.Receiver]
             if exists && receiverClient.Conn != nil {
@@ -803,7 +868,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             clientsMutex.Unlock()
 
         case "call_signal":
-            // Handle WebRTC signaling
             clientsMutex.Lock()
             receiverClient, exists := clients[msg.Receiver]
             if exists && receiverClient.Conn != nil {
@@ -817,7 +881,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                     clientsMutex.Unlock()
                     continue
                 }
-                // Notify receiver of incoming call
                 message := &messaging.Message{
                     Notification: &messaging.Notification{
                         Title: fmt.Sprintf("Incoming %s call from %s", msg.Signal.CallType, msg.Sender),
@@ -838,7 +901,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             }
             clientsMutex.Unlock()
 
-            // Store call metadata in Supabase
             if msg.Signal.Type == "call-initiate" {
                 newCall := map[string]interface{}{
                     "caller":     msg.Sender,
