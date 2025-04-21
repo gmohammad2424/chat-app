@@ -345,6 +345,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // Upload handler for files
+// Upload handler for files (HTTP fallback)
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
     // Parse multipart form
     err := r.ParseMultipartForm(10 << 20) // 10 MB limit
@@ -370,11 +371,32 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Upload to Supabase Storage
+    // Upload to Supabase Storage via HTTP
     filePath := fmt.Sprintf("chat-files/%s-%d", handler.Filename, time.Now().UnixNano())
-    _, err = supaClient.Storage().Bucket("chat-files").Upload(filePath, fileBytes, nil)
+    uploadURL := fmt.Sprintf("%s/storage/v1/object/chat-files/%s", os.Getenv("SUPABASE_URL"), filePath)
+
+    req, err := http.NewRequest("POST", uploadURL, bytes.NewReader(fileBytes))
+    if err != nil {
+        log.Printf("Error creating upload request: %v", err)
+        http.Error(w, "Failed to upload file", http.StatusInternalServerError)
+        return
+    }
+
+    req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_KEY"))
+    req.Header.Set("Content-Type", handler.Header.Get("Content-Type"))
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
     if err != nil {
         log.Printf("Error uploading file to Supabase Storage: %v", err)
+        http.Error(w, "Failed to upload file", http.StatusInternalServerError)
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        log.Printf("Error uploading file to Supabase Storage: %s, response: %s", resp.Status, string(body))
         http.Error(w, "Failed to upload file", http.StatusInternalServerError)
         return
     }
@@ -385,7 +407,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
     json.NewEncoder(w).Encode(map[string]string{"file_url": fileURL})
 }
-
 // Messages handler
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
     chatID := r.URL.Query().Get("chat_id")
