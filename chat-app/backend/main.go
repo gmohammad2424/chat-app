@@ -33,6 +33,7 @@ var (
     supaClient   *supabaseClient.Client     // Supabase client
     jwtSecret    string                     // JWT secret from environment
     fcmEnabled   bool                       // Flag to indicate if FCM is enabled
+    adminUsername = "admin"                 // Define the admin username
 )
 
 // Client struct to store WebSocket connection and push token
@@ -482,6 +483,21 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    // For non-admins, ensure they only have one chat partner (excluding admin)
+    if username != adminUsername {
+        nonAdminChats := []string{}
+        for _, user := range allowedUsers {
+            if user != adminUsername {
+                nonAdminChats = append(nonAdminChats, user)
+            }
+        }
+        if len(nonAdminChats) > 1 {
+            log.Printf("Non-admin user %s has more than one non-admin chat partner, which is not allowed", username)
+            http.Error(w, "Non-admin users can only have one chat partner", http.StatusForbidden)
+            return
+        }
+    }
+
     log.Printf("Found %d allowed chats for user %s", len(allowedUsers), username)
     json.NewEncoder(w).Encode(allowedUsers)
 }
@@ -513,9 +529,9 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Upload to Supabase Storage using HTTP request
-    bucket := "chat-files"
+    schadule := "chat-files"
     filePath := fmt.Sprintf("%s-%d", handler.Filename, time.Now().UnixNano())
-    uploadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucket, filePath)
+    uploadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), schadule, filePath)
 
     req, err := http.NewRequest("POST", uploadURL, bytes.NewReader(fileBytes))
     if err != nil {
@@ -661,13 +677,14 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Verify that the user is part of this chat and it's allowed in the chats table
+    // Verify that the user is part of this chat
     if username != sender {
         log.Printf("User %s does not match sender %s in chat ID", username, sender)
         http.Error(w, "Forbidden", http.StatusForbidden)
         return
     }
 
+    // Verify that the chat is allowed
     allowed, err := canUsersChat(sender, receiver)
     if err != nil {
         log.Printf("Error checking if users can chat: %v", err)
@@ -678,6 +695,39 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         log.Printf("Chat between %s and %s is not allowed", sender, receiver)
         http.Error(w, "Forbidden", http.StatusForbidden)
         return
+    }
+
+    // For non-admins, ensure they only have one non-admin chat partner
+    if username != adminUsername {
+        var chats []map[string]interface{}
+        _, err := supaClient.From("chats").
+            Select("*", "exact", false).
+            Or(fmt.Sprintf("user1.eq.%s", username), fmt.Sprintf("user2.eq.%s", username)).
+            ExecuteTo(&chats)
+        if err != nil {
+            log.Printf("Error fetching chats for user %s: %v", username, err)
+            http.Error(w, "Internal server error", http.StatusInternalServerError)
+            return
+        }
+
+        nonAdminChats := 0
+        for _, chat := range chats {
+            user1, _ := chat["user1"].(string)
+            user2, _ := chat["user2"].(string)
+            otherUser := user1
+            if user1 == username {
+                otherUser = user2
+            }
+            if otherUser != adminUsername {
+                nonAdminChats++
+            }
+        }
+
+        if nonAdminChats > 1 {
+            log.Printf("Non-admin user %s has more than one non-admin chat partner, which is not allowed", username)
+            http.Error(w, "Non-admin users can only have one chat partner", http.StatusForbidden)
+            return
+        }
     }
 
     log.Printf("Fetching messages for chat ID %s (sender: %s, receiver: %s)", chatID, sender, receiver)
@@ -791,6 +841,37 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         conn.Close()
         log.Printf("WebSocket connection closed for user: %s", username)
     }()
+
+    // For non-admins, ensure they only have one non-admin chat partner
+    if username != adminUsername {
+        var chats []map[string]interface{}
+        _, err := supaClient.From("chats").
+            Select("*", "exact", false).
+            Or(fmt.Sprintf("user1.eq.%s", username), fmt.Sprintf("user2.eq.%s", username)).
+            ExecuteTo(&chats)
+        if err != nil {
+            log.Printf("Error fetching chats for user %s: %v", username, err)
+            return
+        }
+
+        nonAdminChats := 0
+        for _, chat := range chats {
+            user1, _ := chat["user1"].(string)
+            user2, _ := chat["user2"].(string)
+            otherUser := user1
+            if user1 == username {
+                otherUser = user2
+            }
+            if otherUser != adminUsername {
+                nonAdminChats++
+            }
+        }
+
+        if nonAdminChats > 1 {
+            log.Printf("Non-admin user %s has more than one non-admin chat partner, which is not allowed", username)
+            return
+        }
+    }
 
     log.Printf("WebSocket connection established for user: %s", username)
 
