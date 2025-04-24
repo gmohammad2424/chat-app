@@ -46,14 +46,8 @@
 <body class="bg-gray-100">
     <div id="chat-container">
         <h1 class="text-2xl font-bold mb-4">Chat App</h1>
-        <div id="chat-selection" class="mb-4">
-            <label for="chat-partner" class="block text-sm font-medium text-gray-700">Select Chat Partner:</label>
-            <select id="chat-partner" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                <option value="">-- Select a user --</option>
-            </select>
-            <button id="start-chat" class="mt-2 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Start Chat</button>
-        </div>
-        <div id="chat-interface" class="hidden">
+        <div id="chat-interface">
+            <h2 id="chat-partner-name" class="text-lg font-semibold mb-2"></h2>
             <div id="messages"></div>
             <div class="flex mb-2">
                 <input type="text" id="message-input" class="flex-grow border rounded-l px-4 py-2 focus:outline-none" placeholder="Type a message...">
@@ -82,8 +76,7 @@
     </div>
 
     <script>
-        const chatPartnerSelect = document.getElementById('chat-partner');
-        const startChatButton = document.getElementById('start-chat');
+        const chatPartnerName = document.getElementById('chat-partner-name');
         const chatInterface = document.getElementById('chat-interface');
         const messagesDiv = document.getElementById('messages');
         const messageInput = document.getElementById('message-input');
@@ -118,56 +111,66 @@
         }
         username = localStorage.getItem('username');
 
-        // Fetch allowed chat partners
-        async function fetchAllowedChats() {
-            const response = await fetch('https://chat-backend-gxh8.onrender.com/allowed-chats', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
+        // Fetch allowed chat partners and start chat automatically
+        async function initializeChat() {
+            try {
+                const response = await fetch('https://chat-backend-gxh8.onrender.com/allowed-chats', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error('Failed to fetch allowed chats');
                 }
-            });
-            if (!response.ok) {
-                throw new Error('Failed to fetch allowed chats');
+                const allowedUsers = await response.json();
+
+                if (allowedUsers.length === 0) {
+                    alert('No chat partners available. Please contact the admin.');
+                    return;
+                }
+
+                // Determine the chat partner
+                let selectedReceiver;
+                if (username === 'admin') {
+                    // For admin, default to the first user (or implement a selection logic if needed)
+                    selectedReceiver = allowedUsers[0];
+                } else {
+                    // For non-admins, select the non-admin chat partner (exclude admin)
+                    selectedReceiver = allowedUsers.find(user => user !== 'admin') || 'admin';
+                }
+
+                currentReceiver = selectedReceiver;
+                currentChatId = `${username}:${currentReceiver}`;
+                chatPartnerName.textContent = `Chatting with: ${currentReceiver}`;
+                chatInterface.classList.remove('hidden');
+                messagesDiv.innerHTML = '';
+                fetchMessages();
+                connectWebSocket();
+            } catch (err) {
+                console.error('Error initializing chat:', err);
+                alert('Failed to load chat. Please try again.');
             }
-            const allowedUsers = await response.json();
-            allowedUsers.forEach(user => {
-                const option = document.createElement('option');
-                option.value = user;
-                option.textContent = user;
-                chatPartnerSelect.appendChild(option);
-            });
         }
 
-        // Initialize the page by fetching allowed chats
-        fetchAllowedChats().catch(err => {
-            console.error('Error fetching allowed chats:', err);
-            alert('Failed to load chat partners. Please try again.');
-        });
-
-        startChatButton.addEventListener('click', () => {
-            const receiver = chatPartnerSelect.value;
-            if (!receiver) {
-                alert('Please select a chat partner');
-                return;
-            }
-
-            currentReceiver = receiver;
-            currentChatId = `${username}:${receiver}`;
-            chatInterface.classList.remove('hidden');
-            document.getElementById('chat-selection').classList.add('hidden');
-            messagesDiv.innerHTML = '';
-            fetchMessages();
-            connectWebSocket();
-        });
+        // Initialize the chat automatically on page load
+        initializeChat();
 
         async function fetchMessages() {
-            const response = await fetch(`https://chat-backend-gxh8.onrender.com/messages?chat_id=${currentChatId}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
+            try {
+                const response = await fetch(`https://chat-backend-gxh8.onrender.com/messages?chat_id=${currentChatId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error('Failed to fetch messages');
                 }
-            });
-            const messages = await response.json();
-            messages.forEach(displayMessage);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                const messages = await response.json();
+                messages.forEach(displayMessage);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            } catch (err) {
+                console.error('Error fetching messages:', err);
+            }
         }
 
         function displayMessage(message) {
@@ -372,14 +375,30 @@
             callModal.style.display = 'none';
         });
 
+        // Function to convert base64url to Uint8Array
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding)
+                .replace(/-/g, '+')
+                .replace(/_/g, '/');
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+
         // Request notification permission
         if ('Notification' in window) {
             Notification.requestPermission().then(permission => {
                 if (permission === 'granted') {
                     navigator.serviceWorker.register('service-worker.js').then(registration => {
+                        const vapidPublicKey = 'YOUR_VAPID_PUBLIC_KEY'; // Replace with your VAPID public key
+                        const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
                         registration.pushManager.subscribe({
                             userVisibleOnly: true,
-                            applicationServerKey: 'YOUR_PUBLIC_VAPID_KEY'
+                            applicationServerKey: convertedVapidKey
                         }).then(subscription => {
                             fetch('https://chat-backend-gxh8.onrender.com/register-push', {
                                 method: 'POST',
@@ -389,12 +408,20 @@
                                 },
                                 body: JSON.stringify({
                                     username: username,
-                                    token: subscription.toJSON()
+                                    token: JSON.stringify(subscription)
                                 })
+                            }).catch(err => {
+                                console.error('Error registering push subscription:', err);
                             });
+                        }).catch(err => {
+                            console.error('Error subscribing to push notifications:', err);
                         });
+                    }).catch(err => {
+                        console.error('Error registering service worker:', err);
                     });
                 }
+            }).catch(err => {
+                console.error('Error requesting notification permission:', err);
             });
         }
     </script>
