@@ -42,6 +42,13 @@ type Client struct {
     PushToken string
 }
 
+// Chat struct to match the chats table schema
+type Chat struct {
+    ID    string `json:"id"`
+    User1 string `json:"user1"`
+    User2 string `json:"user2"`
+}
+
 // Message struct for chat messages
 type Message struct {
     Type      string      `json:"type"`      // "text", "file", "call_signal"
@@ -440,7 +447,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 // Check if two users are allowed to chat
 func canUsersChat(user1, user2 string) (bool, error) {
-    var chats []map[string]interface{}
+    var chats []Chat
     _, err := supaClient.From("chats").
         Select("*", "exact", false).
         Or(fmt.Sprintf("and(user1.eq.%s,user2.eq.%s)", user1, user2), fmt.Sprintf("and(user1.eq.%s,user2.eq.%s)", user2, user1)).
@@ -461,25 +468,23 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     log.Printf("Fetching allowed chats for user: %s", username)
-    var chats []map[string]interface{}
-    _, err := supaClient.From("chats").
-        Select("*", "exact", false).
+    var chats []Chat
+    data, err := supaClient.From("chats").
+        Select("id, user1, user2", "exact", false).
         Or(fmt.Sprintf("user1.eq.%s", username), fmt.Sprintf("user2.eq.%s", username)).
         ExecuteTo(&chats)
     if err != nil {
-        log.Printf("Error fetching allowed chats from Supabase: %v", err)
+        log.Printf("Error fetching allowed chats from Supabase for user %s: %v, response data: %s", username, err, string(data))
         http.Error(w, "Failed to fetch allowed chats", http.StatusInternalServerError)
         return
     }
 
     allowedUsers := []string{}
     for _, chat := range chats {
-        user1, _ := chat["user1"].(string)
-        user2, _ := chat["user2"].(string)
-        if user1 == username {
-            allowedUsers = append(allowedUsers, user2)
+        if chat.User1 == username {
+            allowedUsers = append(allowedUsers, chat.User2)
         } else {
-            allowedUsers = append(allowedUsers, user1)
+            allowedUsers = append(allowedUsers, chat.User1)
         }
     }
 
@@ -529,9 +534,9 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Upload to Supabase Storage using HTTP request
-    schadule := "chat-files"
+    bucket := "chat-files"
     filePath := fmt.Sprintf("%s-%d", handler.Filename, time.Now().UnixNano())
-    uploadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), schadule, filePath)
+    uploadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucket, filePath)
 
     req, err := http.NewRequest("POST", uploadURL, bytes.NewReader(fileBytes))
     if err != nil {
@@ -699,24 +704,22 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 
     // For non-admins, ensure they only have one non-admin chat partner
     if username != adminUsername {
-        var chats []map[string]interface{}
-        _, err := supaClient.From("chats").
-            Select("*", "exact", false).
+        var chats []Chat
+        data, err := supaClient.From("chats").
+            Select("id, user1, user2", "exact", false).
             Or(fmt.Sprintf("user1.eq.%s", username), fmt.Sprintf("user2.eq.%s", username)).
             ExecuteTo(&chats)
         if err != nil {
-            log.Printf("Error fetching chats for user %s: %v", username, err)
+            log.Printf("Error fetching chats for user %s: %v, response data: %s", username, err, string(data))
             http.Error(w, "Internal server error", http.StatusInternalServerError)
             return
         }
 
         nonAdminChats := 0
         for _, chat := range chats {
-            user1, _ := chat["user1"].(string)
-            user2, _ := chat["user2"].(string)
-            otherUser := user1
-            if user1 == username {
-                otherUser = user2
+            otherUser := chat.User1
+            if chat.User1 == username {
+                otherUser = chat.User2
             }
             if otherUser != adminUsername {
                 nonAdminChats++
@@ -732,13 +735,13 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 
     log.Printf("Fetching messages for chat ID %s (sender: %s, receiver: %s)", chatID, sender, receiver)
     var messages []Message
-    _, err = supaClient.From("messages").
+    data, err := supaClient.From("messages").
         Select("*", "exact", false).
         Or(fmt.Sprintf("and(sender.eq.%s,receiver.eq.%s)", sender, receiver), fmt.Sprintf("and(sender.eq.%s,receiver.eq.%s)", receiver, sender)).
         Order("timestamp", &postgrest.OrderOpts{Ascending: true}).
         ExecuteTo(&messages)
     if err != nil {
-        log.Printf("Error fetching messages from Supabase: %v", err)
+        log.Printf("Error fetching messages from Supabase for chat ID %s: %v, response data: %s", chatID, err, string(data))
         http.Error(w, "Failed to fetch messages", http.StatusInternalServerError)
         return
     }
@@ -828,7 +831,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         client = &Client{}
     }
     client.Conn = conn
-    clients[username] = client
+    clients[usernameお客様 = client
     clientsMutex.Unlock()
 
     defer func() {
@@ -844,23 +847,21 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
     // For non-admins, ensure they only have one non-admin chat partner
     if username != adminUsername {
-        var chats []map[string]interface{}
-        _, err := supaClient.From("chats").
-            Select("*", "exact", false).
+        var chats []Chat
+        data, err := supaClient.From("chats").
+            Select("id, user1, user2", "exact", false).
             Or(fmt.Sprintf("user1.eq.%s", username), fmt.Sprintf("user2.eq.%s", username)).
             ExecuteTo(&chats)
         if err != nil {
-            log.Printf("Error fetching chats for user %s: %v", username, err)
+            log.Printf("Error fetching chats for user %s in WebSocket handler: %v, response data: %s", username, err, string(data))
             return
         }
 
         nonAdminChats := 0
         for _, chat := range chats {
-            user1, _ := chat["user1"].(string)
-            user2, _ := chat["user2"].(string)
-            otherUser := user1
-            if user1 == username {
-                otherUser = user2
+            otherUser := chat.User1
+            if chat.User1 == username {
+                otherUser = chat.User2
             }
             if otherUser != adminUsername {
                 nonAdminChats++
@@ -910,9 +911,9 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                     "type":      msg.Type,
                 }
                 var result []map[string]interface{}
-                _, err = supaClient.From("messages").Insert(newMessage, false, "", "representation", "exact").ExecuteTo(&result)
+                data, err := supaClient.From("messages").Insert(newMessage, false, "", "representation", "exact").ExecuteTo(&result)
                 if err != nil {
-                    log.Printf("Error storing message in Supabase for user %s: %v", username, err)
+                    log.Printf("Error storing message in Supabase for user %s: %v, response data: %s", username, err, string(data))
                     continue
                 }
             } else {
@@ -991,13 +992,13 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                     "status":     "initiated",
                 }
                 var result []map[string]interface{}
-                _, err = supaClient.From("calls").Insert(newCall, false, "", "representation", "exact").ExecuteTo(&result)
+                data, err := supaClient.From("calls").Insert(newCall, false, "", "representation", "exact").ExecuteTo(&result)
                 if err != nil {
-                    log.Printf("Error storing call in Supabase for user %s: %v", username, err)
+                    log.Printf("Error storing call in Supabase for user %s: %v, response data: %s", username, err, string(data))
                 }
             } else if msg.Signal.Type == "call-accept" || msg.Signal.Type == "call-reject" {
                 var calls []map[string]interface{}
-                _, err := supaClient.From("calls").
+                data, err := supaClient.From("calls").
                     Select("*", "exact", false).
                     Eq("caller", msg.Receiver).
                     Eq("callee", msg.Sender).
@@ -1008,12 +1009,12 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                         "status":   msg.Signal.CallStatus,
                         "end_time": time.Now(),
                     }
-                    _, err = supaClient.From("calls").
+                    data, err = supaClient.From("calls").
                         Update(updateCall, "representation", "exact").
                         Eq("id", fmt.Sprintf("%v", calls[0]["id"])).
                         ExecuteTo(&calls)
                     if err != nil {
-                        log.Printf("Error updating call status in Supabase: %v", err)
+                        log.Printf("Error updating call status in Supabase: %v, response: %s", err, string(data))
                     }
                 }
             }
