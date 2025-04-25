@@ -452,7 +452,7 @@ func canUsersChat(user1, user2 string) (bool, error) {
         Select("*", "exact", false).
         Filter("participant1", "eq", user1).
         Filter("participant2", "eq", user2).
-        Or(fmt.Sprintf("and(participant1.eq.%s,participant2.eq.%s),and(participant1.eq.%s,participant2.eq.%s)", user1, user2, user2, user1)).
+        Or(fmt.Sprintf("and(participant1.eq.%s,participant2.eq.%s),and(participant1.eq.%s,participant2.eq.%s)", user1, user2, user2, user1), "or").
         ExecuteTo(&chats)
     if err != nil {
         return false, err
@@ -474,7 +474,7 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
     data, err := supaClient.From("chats").
         Select("id, participant1, participant2", "exact", false).
         Filter("participant1", "eq", username).
-        Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", username, username)).
+        Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", username, username), "or").
         ExecuteTo(&chats)
     if err != nil {
         log.Printf("Error fetching allowed chats from Supabase for user %s: %v, response data: %s", username, err, string(data))
@@ -602,7 +602,7 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
         Select("*", "exact", false).
         Eq("file_url", fileURL).
         Filter("sender", "eq", username).
-        Or(fmt.Sprintf("sender.eq.%s,receiver.eq.%s", username, username)).
+        Or(fmt.Sprintf("sender.eq.%s,receiver.eq.%s", username, username), "or").
         ExecuteTo(&messages)
     if err != nil {
         log.Printf("Error checking file access in messages table: %v", err)
@@ -712,7 +712,7 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         data, err := supaClient.From("chats").
             Select("id, participant1, participant2", "exact", false).
             Filter("participant1", "eq", username).
-            Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", username, username)).
+            Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", username, username), "or").
             ExecuteTo(&chats)
         if err != nil {
             log.Printf("Error fetching chats for user %s: %v, response data: %s", username, err, string(data))
@@ -744,7 +744,7 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         Select("*", "exact", false).
         Filter("sender", "eq", sender).
         Filter("receiver", "eq", receiver).
-        Or(fmt.Sprintf("and(sender.eq.%s,receiver.eq.%s),and(sender.eq.%s,receiver.eq.%s)", sender, receiver, receiver, sender)).
+        Or(fmt.Sprintf("and(sender.eq.%s,receiver.eq.%s),and(sender.eq.%s,receiver.eq.%s)", sender, receiver, receiver, sender), "or").
         Order("timestamp", &postgrest.OrderOpts{Ascending: true}).
         ExecuteTo(&messages)
     if err != nil {
@@ -859,7 +859,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         data, err := supaClient.From("chats").
             Select("id, participant1, participant2", "exact", false).
             Filter("participant1", "eq", username).
-            Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", username, username)).
+            Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", username, username), "or").
             ExecuteTo(&chats)
         if err != nil {
             log.Printf("Error fetching chats for user %s in WebSocket handler: %v, response data: %s", username, err, string(data))
