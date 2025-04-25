@@ -831,7 +831,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         client = &Client{}
     }
     client.Conn = conn
-    clients[usernameお客様 = client
+    clients[username] = client
     clientsMutex.Unlock()
 
     defer func() {
