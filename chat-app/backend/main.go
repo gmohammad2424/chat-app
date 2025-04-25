@@ -25,6 +25,7 @@ import (
     "github.com/gorilla/websocket"
     "github.com/joho/godotenv"
     "github.com/supabase-community/gotrue-go"
+    "github.com/supabase-community/gotrue-go/types"
     supabaseClient "github.com/supabase-community/supabase-go"
     "github.com/supabase-community/postgrest-go"
 )
@@ -310,9 +311,14 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create user in Supabase auth
-    authUser, err := authClient.Signup(user.Username+"@example.com", user.Password, map[string]interface{}{
-        "username": user.Username,
-    })
+    signupRequest := types.SignupRequest{
+        Email:    user.Username + "@example.com",
+        Password: user.Password,
+        Data: map[string]interface{}{
+            "username": user.Username,
+        },
+    }
+    authUser, err := authClient.Signup(signupRequest)
     if err != nil {
         log.Printf("Error creating user in Supabase auth: %v", err)
         http.Error(w, "Failed to register user", http.StatusInternalServerError)
@@ -372,9 +378,14 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create user in Supabase auth
-    authUser, err := authClient.Signup(user.Email, user.Password, map[string]interface{}{
-        "username": user.Username,
-    })
+    signupRequest := types.SignupRequest{
+        Email:    user.Email,
+        Password: user.Password,
+        Data: map[string]interface{}{
+            "username": user.Username,
+        },
+    }
+    authUser, err := authClient.Signup(signupRequest)
     if err != nil {
         log.Printf("Error creating user in Supabase auth: %v", err)
         http.Error(w, "Failed to register user", http.StatusInternalServerError)
@@ -382,7 +393,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign in the user to get a JWT
-    authResponse, err := authClient.SignIn(user.Email, user.Password)
+    authResponse, err := authClient.SignInWithEmail(user.Email, user.Password)
     if err != nil {
         log.Printf("Error signing in user %s to get JWT: %v", user.Username, err)
         http.Error(w, "Failed to generate token", http.StatusInternalServerError)
@@ -461,7 +472,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign in user with Supabase auth to verify credentials
-    authResponse, err := authClient.SignIn(email, creds.Password)
+    authResponse, err := authClient.SignInWithEmail(email, creds.Password)
     if err != nil {
         log.Printf("Error signing in user %s with Supabase auth: %v", creds.Username, err)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
