@@ -446,37 +446,52 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Fetch user from users table to get their email
-    var users []map[string]interface{}
-    _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).ExecuteTo(&users)
+    // Query the auth.users table to find the user by username (stored in user_metadata)
+    var authUsers []map[string]interface{}
+    _, err := supaClient.From("auth.users").
+        Select("id, email, user_metadata", "exact", false).
+        ExecuteTo(&authUsers)
     if err != nil {
-        log.Printf("Error fetching user %s from Supabase: %v", creds.Username, err)
+        log.Printf("Error fetching users from auth.users in Supabase: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
-    if len(users) == 0 {
-        log.Printf("User %s not found in Supabase", creds.Username)
+    var email string
+    var userID string
+    found := false
+    for _, authUser := range authUsers {
+        metadata, ok := authUser["user_metadata"].(map[string]interface{})
+        if !ok {
+            continue
+        }
+        username, ok := metadata["username"].(string)
+        if !ok || username != creds.Username {
+            continue
+        }
+        email, ok = authUser["email"].(string)
+        if !ok {
+            log.Printf("Invalid email format for user %s in auth.users", creds.Username)
+            http.Error(w, "Internal server error", http.StatusInternalServerError)
+            return
+        }
+        userID, ok = authUser["id"].(string)
+        if !ok {
+            log.Printf("Invalid user_id format for user %s in auth.users", creds.Username)
+            http.Error(w, "Internal server error", http.StatusInternalServerError)
+            return
+        }
+        found = true
+        break
+    }
+
+    if !found {
+        log.Printf("User %s not found in auth.users", creds.Username)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
         return
     }
 
-    user := users[0]
-    email, ok := user["email"].(string)
-    if !ok {
-        log.Printf("Invalid email format for user %s in Supabase", creds.Username)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    userID, ok := user["user_id"].(string)
-    if !ok {
-        log.Printf("Invalid user_id format for user %s in Supabase", creds.Username)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    // Sign in user with Supabase auth to verify credentials
+    // Sign in user with Supabase auth using the retrieved email
     tokenRequest := types.TokenRequest{
         GrantType: "password",
         Email:     email,
@@ -1240,7 +1255,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                         Eq("id", fmt.Sprintf("%v", calls[0]["id"])).
                         ExecuteTo(&calls)
                     if err != nil {
-                        log.printf("Error updating call status in Supabase: %v", err)
+                        log.Printf("Error updating call status in Supabase: %v", err)
                     }
                 }
             }
