@@ -310,7 +310,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create user in Supabase auth
-    authUser, err := authClient.Signup(gotrue.SignUpParams{
+    authUser, err := authClient.Signup(gotrue.SignupCredentials{
         Email:    user.Username + "@example.com", // Generate a dummy email
         Password: user.Password,
         Data: map[string]interface{}{
@@ -325,7 +325,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 
     // Insert new user into the users table
     newUser := map[string]interface{}{
-        "user_id":  authUser.ID,
+        "user_id":  authUser.ID.String(),
         "username": user.Username,
     }
     var result []map[string]interface{}
@@ -336,7 +336,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("User registered successfully: %s (user_id: %s)", user.Username, authUser.ID)
+    log.Printf("User registered successfully: %s (user_id: %s)", user.Username, authUser.ID.String())
     w.WriteHeader(http.StatusCreated)
     json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
 }
@@ -376,7 +376,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create user in Supabase auth
-    authUser, err := authClient.Signup(gotrue.SignUpParams{
+    authUser, err := authClient.Signup(gotrue.SignupCredentials{
         Email:    user.Email,
         Password: user.Password,
         Data: map[string]interface{}{
@@ -390,7 +390,10 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign in the user to get a JWT
-    authResponse, err := authClient.SignInWithEmailAndPassword(user.Email, user.Password)
+    authResponse, err := authClient.SignInWithPassword(gotrue.SignInWithPasswordCredentials{
+        Email:    user.Email,
+        Password: user.Password,
+    })
     if err != nil {
         log.Printf("Error signing in user %s to get JWT: %v", user.Username, err)
         http.Error(w, "Failed to generate token", http.StatusInternalServerError)
@@ -399,7 +402,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
     // Insert new user into the users table
     newUser := map[string]interface{}{
-        "user_id":  authUser.ID,
+        "user_id":  authUser.ID.String(),
         "username": user.Username,
         "email":    user.Email,
     }
@@ -411,10 +414,10 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("User signed up successfully: %s (user_id: %s)", user.Username, authUser.ID)
+    log.Printf("User signed up successfully: %s (user_id: %s)", user.Username, authUser.ID.String())
     json.NewEncoder(w).Encode(map[string]string{
         "token":   authResponse.AccessToken,
-        "chat_id": authUser.ID + ":",
+        "chat_id": authUser.ID.String() + ":",
     })
 }
 
@@ -469,7 +472,10 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign in user with Supabase auth to verify credentials
-    authResponse, err := authClient.SignInWithEmailAndPassword(email, creds.Password)
+    authResponse, err := authClient.SignInWithPassword(gotrue.SignInWithPasswordCredentials{
+        Email:    email,
+        Password: creds.Password,
+    })
     if err != nil {
         log.Printf("Error signing in user %s with Supabase auth: %v", creds.Username, err)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
