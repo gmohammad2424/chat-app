@@ -393,7 +393,12 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign in the user to get a JWT
-    authResponse, err := authClient.SignInWithEmail(user.Email, user.Password)
+    tokenRequest := types.TokenRequest{
+        GrantType: "password",
+        Email:     user.Email,
+        Password:  user.Password,
+    }
+    authResponse, err := authClient.Token(tokenRequest)
     if err != nil {
         log.Printf("Error signing in user %s to get JWT: %v", user.Username, err)
         http.Error(w, "Failed to generate token", http.StatusInternalServerError)
@@ -472,7 +477,12 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign in user with Supabase auth to verify credentials
-    authResponse, err := authClient.SignInWithEmail(email, creds.Password)
+    tokenRequest := types.TokenRequest{
+        GrantType: "password",
+        Email:     email,
+        Password:  creds.Password,
+    }
+    authResponse, err := authClient.Token(tokenRequest)
     if err != nil {
         log.Printf("Error signing in user %s with Supabase auth: %v", creds.Username, err)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
@@ -1230,7 +1240,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                         Eq("id", fmt.Sprintf("%v", calls[0]["id"])).
                         ExecuteTo(&calls)
                     if err != nil {
-                        log.Printf("Error updating call status in Supabase: %v", err)
+                        log.printf("Error updating call status in Supabase: %v", err)
                     }
                 }
             }
