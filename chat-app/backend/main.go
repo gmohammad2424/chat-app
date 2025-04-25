@@ -35,7 +35,7 @@ var (
     clientsMutex sync.Mutex                 // Mutex for thread-safe access
     fcmClient    *messaging.Client          // Firebase Cloud Messaging client
     supaClient   *supabaseClient.Client     // Supabase client for database
-    authClient   gotrue.Client              // Supabase client for authentication (changed to interface type)
+    authClient   gotrue.Client              // Supabase client for authentication
     jwtSecret    string                     // JWT secret from environment
     encryptionKey []byte                    // Encryption key for file URLs
     fcmEnabled   bool                       // Flag to indicate if FCM is enabled
@@ -265,7 +265,7 @@ func main() {
         fmt.Fprintf(w, "Chat App Backend")
     })
 
-    // CORS middleware with logging
+    // CORS middleware
     corsHandler := handlers.CORS(
         handlers.AllowedOrigins([]string{"*"}),
         handlers.AllowedMethods([]string{"GET", "POST", "OPTIONS"}),
@@ -274,11 +274,14 @@ func main() {
         handlers.OptionStatusCode(http.StatusNoContent),
     )
 
-    // Wrap the router with CORS and logging middleware
+    // Wrap the router with CORS
+    corsWrappedRouter := corsHandler(r)
+
+    // Add logging middleware
     loggedRouter := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         log.Printf("Received request: %s %s from %s", r.Method, r.URL.Path, r.Header.Get("Origin"))
         log.Printf("Request headers: %v", r.Header)
-        corsHandler(r).ServeHTTP(w, r)
+        corsWrappedRouter.ServeHTTP(w, r)
         log.Printf("Response headers: %v", w.Header())
     })
 
@@ -307,7 +310,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create user in Supabase auth
-    authUser, err := authClient.SignUp(gotrue.SignupParams{
+    authUser, err := authClient.Signup(gotrue.SignUpParams{
         Email:    user.Username + "@example.com", // Generate a dummy email
         Password: user.Password,
         Data: map[string]interface{}{
@@ -373,7 +376,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create user in Supabase auth
-    authUser, err := authClient.SignUp(gotrue.SignupParams{
+    authUser, err := authClient.Signup(gotrue.SignUpParams{
         Email:    user.Email,
         Password: user.Password,
         Data: map[string]interface{}{
@@ -387,10 +390,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign in the user to get a JWT
-    authResponse, err := authClient.SignIn(gotrue.SignInParams{
-        Email:    user.Email,
-        Password: user.Password,
-    })
+    authResponse, err := authClient.SignInWithEmailAndPassword(user.Email, user.Password)
     if err != nil {
         log.Printf("Error signing in user %s to get JWT: %v", user.Username, err)
         http.Error(w, "Failed to generate token", http.StatusInternalServerError)
@@ -469,10 +469,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign in user with Supabase auth to verify credentials
-    authResponse, err := authClient.SignIn(gotrue.SignInParams{
-        Email:    email,
-        Password: creds.Password,
-    })
+    authResponse, err := authClient.SignInWithEmailAndPassword(email, creds.Password)
     if err != nil {
         log.Printf("Error signing in user %s with Supabase auth: %v", creds.Username, err)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
@@ -688,7 +685,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     }
     fileURL := fmt.Sprintf("%s/file/%s", backendURL, filePath)
 
-    // Encrypt the file URL before storing
+    // Encrypt the file URL before returning
     encryptedFileURL, err := encryptString(fileURL)
     if err != nil {
         log.Printf("Error encrypting file URL for user %s: %v", userID, err)
