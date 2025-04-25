@@ -446,48 +446,35 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Query the auth.users table to find the user by username (stored in user_metadata)
-    var authUsers []map[string]interface{}
-    _, err := supaClient.From("auth.users").
-        Select("id, email, user_metadata", "exact", false).
-        ExecuteTo(&authUsers)
+    // Query the users table to find the user by username
+    var users []map[string]interface{}
+    _, err := supaClient.From("users").
+        Select("user_id, email", "exact", false).
+        Eq("username", creds.Username).
+        ExecuteTo(&users)
     if err != nil {
-        log.Printf("Error fetching users from auth.users in Supabase: %v", err)
+        log.Printf("Error fetching user from users table in Supabase: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
-    var email string
-    var userID string
-    found := false
-    for _, authUser := range authUsers {
-        metadata, ok := authUser["user_metadata"].(map[string]interface{})
-        if !ok {
-            continue
-        }
-        username, ok := metadata["username"].(string)
-        if !ok || username != creds.Username {
-            continue
-        }
-        email, ok = authUser["email"].(string)
-        if !ok {
-            log.Printf("Invalid email format for user %s in auth.users", creds.Username)
-            http.Error(w, "Internal server error", http.StatusInternalServerError)
-            return
-        }
-        userID, ok = authUser["id"].(string)
-        if !ok {
-            log.Printf("Invalid user_id format for user %s in auth.users", creds.Username)
-            http.Error(w, "Internal server error", http.StatusInternalServerError)
-            return
-        }
-        found = true
-        break
+    if len(users) == 0 {
+        log.Printf("User %s not found in users table", creds.Username)
+        http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+        return
     }
 
-    if !found {
-        log.Printf("User %s not found in auth.users", creds.Username)
-        http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+    user := users[0]
+    email, ok := user["email"].(string)
+    if !ok {
+        log.Printf("Invalid email format for user %s in users table", creds.Username)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    userID, ok := user["user_id"].(string)
+    if !ok {
+        log.Printf("Invalid user_id format for user %s in users table", creds.Username)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
