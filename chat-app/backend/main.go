@@ -20,20 +20,21 @@ import (
     "github.com/gorilla/mux"
     "github.com/gorilla/websocket"
     "github.com/joho/godotenv"
-    "golang.org/x/crypto/bcrypt"
+    "github.com/supabase-community/gotrue-go"
     supabaseClient "github.com/supabase-community/supabase-go"
     "github.com/supabase-community/postgrest-go"
 )
 
 // Global variables
 var (
-    clients      = make(map[string]*Client) // Map of usernames to WebSocket clients
+    clients      = make(map[string]*Client) // Map of user_ids to WebSocket clients
     clientsMutex sync.Mutex                 // Mutex for thread-safe access
     fcmClient    *messaging.Client          // Firebase Cloud Messaging client
-    supaClient   *supabaseClient.Client     // Supabase client
+    supaClient   *supabaseClient.Client     // Supabase client for database
+    authClient   *gotrue.Client             // Supabase client for authentication
     jwtSecret    string                     // JWT secret from environment
     fcmEnabled   bool                       // Flag to indicate if FCM is enabled
-    adminUsername = "admin"                 // Define the admin username
+    adminUserID  = "550e8400-e29b-41d4-a716-446655440000" // Admin's UUID from auth.users
 )
 
 // Client struct to store WebSocket connection and push token
@@ -44,16 +45,16 @@ type Client struct {
 
 // Chat struct to match the chats table schema
 type Chat struct {
-    ID          string `json:"id"`
-    Participant1 string `json:"participant1"`
-    Participant2 string `json:"participant2"`
+    ID           string `json:"id"`
+    Participant1 string `json:"participant1"` // Now a UUID
+    Participant2 string `json:"participant2"` // Now a UUID
 }
 
 // Message struct for chat messages
 type Message struct {
     Type      string      `json:"type"`      // "text", "file", "call_signal"
-    Sender    string      `json:"sender"`
-    Receiver  string      `json:"receiver"`
+    Sender    string      `json:"sender"`    // Now a UUID
+    Receiver  string      `json:"receiver"`  // Now a UUID
     Content   string      `json:"content,omitempty"`
     FileURL   string      `json:"file_url,omitempty"`
     FileType  string      `json:"file_type,omitempty"`
@@ -80,8 +81,8 @@ type User struct {
 
 // PushRegistration struct for FCM tokens
 type PushRegistration struct {
-    Username string `json:"username"`
-    Token    string `json:"token"`
+    UserID string `json:"user_id"` // Now a UUID
+    Token  string `json:"token"`
 }
 
 // WebSocket upgrader
@@ -104,9 +105,9 @@ func main() {
         log.Fatal("JWT_SECRET environment variable is required")
     }
 
-    // Initialize Supabase
+    // Initialize Supabase database client
     supabaseURL := os.Getenv("SUPABASE_URL")
-    supabaseKey := os.Getenv("SUPABASE_KEY")
+    supabaseKey := os.Getenv("SUPABASE_KEY") // Should be the service_role key
     if supabaseURL == "" || supabaseKey == "" {
         log.Fatal("SUPABASE_URL and SUPABASE_KEY environment variables are required")
     }
@@ -117,6 +118,16 @@ func main() {
     }
     if supaClient == nil {
         log.Fatal("Failed to initialize Supabase client")
+    }
+
+    // Initialize Supabase auth client
+    supabaseServiceKey := os.Getenv("SUPABASE_SERVICE_KEY")
+    if supabaseServiceKey == "" {
+        log.Fatal("SUPABASE_SERVICE_KEY environment variable is required for auth")
+    }
+    authClient = gotrue.New(supabaseURL, supabaseServiceKey)
+    if authClient == nil {
+        log.Fatal("Failed to initialize Supabase auth client")
     }
 
     // Initialize Firebase
@@ -210,7 +221,7 @@ func main() {
     log.Fatal(http.ListenAndServe(":"+port, loggedRouter))
 }
 
-// Register handler
+// Register handler (optional, can be removed if signupHandler is sufficient)
 func registerHandler(w http.ResponseWriter, r *http.Request) {
     var user User
     if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
@@ -225,33 +236,24 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Check if user exists
-    var existingUsers []map[string]interface{}
-    data, err := supaClient.From("users").Select("*", "exact", false).Eq("username", user.Username).ExecuteTo(&existingUsers)
+    // Create user in Supabase auth
+    authUser, err := authClient.AdminCreateUser(gotrue.AdminUserParams{
+        Email:    user.Username + "@example.com", // Generate a dummy email
+        Password: user.Password,
+        UserMetadata: map[string]interface{}{
+            "username": user.Username,
+        },
+    })
     if err != nil {
-        log.Printf("Error checking user in Supabase: %v, response data: %s", err, string(data))
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        log.Printf("Error creating user in Supabase auth: %v", err)
+        http.Error(w, "Failed to register user", http.StatusInternalServerError)
         return
     }
 
-    if len(existingUsers) > 0 {
-        log.Printf("Username %s already exists", user.Username)
-        http.Error(w, "Username already exists", http.StatusConflict)
-        return
-    }
-
-    // Hash the password
-    hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-    if err != nil {
-        log.Printf("Error hashing password for user %s: %v", user.Username, err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    // Insert new user
+    // Insert new user into the users table
     newUser := map[string]interface{}{
+        "user_id":  authUser.ID,
         "username": user.Username,
-        "password": string(hashedPassword),
     }
     var result []map[string]interface{}
     _, err = supaClient.From("users").Insert(newUser, false, "", "representation", "exact").ExecuteTo(&result)
@@ -261,7 +263,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("User registered successfully: %s", user.Username)
+    log.Printf("User registered successfully: %s (user_id: %s)", user.Username, authUser.ID)
     w.WriteHeader(http.StatusCreated)
     json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
 }
@@ -285,7 +287,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Check if user exists
+    // Check if user exists in the users table
     var existingUsers []map[string]interface{}
     data, err := supaClient.From("users").Select("*", "exact", false).Eq("username", user.Username).ExecuteTo(&existingUsers)
     if err != nil {
@@ -300,19 +302,33 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Hash the password
-    hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+    // Create user in Supabase auth
+    authUser, err := authClient.AdminCreateUser(gotrue.AdminUserParams{
+        Email:    user.Email,
+        Password: user.Password,
+        UserMetadata: map[string]interface{}{
+            "username": user.Username,
+        },
+    })
     if err != nil {
-        log.Printf("Error hashing password for user %s: %v", user.Username, err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        log.Printf("Error creating user in Supabase auth: %v", err)
+        http.Error(w, "Failed to register user", http.StatusInternalServerError)
         return
     }
 
-    // Insert new user
+    // Sign in the user to get a JWT
+    authResponse, err := authClient.SignInWithEmailAndPassword(user.Email, user.Password)
+    if err != nil {
+        log.Printf("Error signing in user %s to get JWT: %v", user.Username, err)
+        http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+        return
+    }
+
+    // Insert new user into the users table
     newUser := map[string]interface{}{
+        "user_id":  authUser.ID,
         "username": user.Username,
         "email":    user.Email,
-        "password": string(hashedPassword),
     }
     var result []map[string]interface{}
     _, err = supaClient.From("users").Insert(newUser, false, "", "representation", "exact").ExecuteTo(&result)
@@ -322,24 +338,10 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Generate JWT with sub claim for RLS
-    token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-        "sub":      user.Username,
-        "username": user.Username,
-        "exp":      time.Now().Add(time.Hour * 24).Unix(),
-    })
-
-    tokenString, err := token.SignedString([]byte(jwtSecret))
-    if err != nil {
-        log.Printf("Error generating JWT for user %s: %v", user.Username, err)
-        http.Error(w, "Failed to generate token", http.StatusInternalServerError)
-        return
-    }
-
-    log.Printf("User signed up successfully: %s", user.Username)
+    log.Printf("User signed up successfully: %s (user_id: %s)", user.Username, authUser.ID)
     json.NewEncoder(w).Encode(map[string]string{
-        "token":   tokenString,
-        "chat_id": user.Username + ":", // Still needed for frontend, but won't allow user to choose receiver
+        "token":   authResponse.AccessToken,
+        "chat_id": authUser.ID + ":",
     })
 }
 
@@ -355,7 +357,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("Login attempt for user: %s", creds.Username)
+    log.Printf("Login attempt for username: %s", creds.Username)
 
     if creds.Username == "" || creds.Password == "" {
         log.Println("Username or password missing in /login request")
@@ -363,11 +365,11 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Verify user
+    // Fetch user from users table to get their email
     var users []map[string]interface{}
-    _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).ExecuteTo(&users)
+    data, err := supaClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).ExecuteTo(&users)
     if err != nil {
-        log.Printf("Error fetching user %s from Supabase: %v", creds.Username, err)
+        log.Printf("Error fetching user %s from Supabase: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
@@ -379,39 +381,32 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     user := users[0]
-    storedPassword, ok := user["password"].(string)
+    email, ok := user["email"].(string)
     if !ok {
-        log.Printf("Invalid password format for user %s in Supabase", creds.Username)
+        log.Printf("Invalid email format for user %s in Supabase", creds.Username)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    userID, ok := user["user_id"].(string)
+    if !ok {
+        log.Printf("Invalid user_id format for user %s in Supabase", creds.Username)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    // Sign in user with Supabase auth to verify credentials
+    authResponse, err := authClient.SignInWithEmailAndPassword(email, creds.Password)
+    if err != nil {
+        log.Printf("Error signing in user %s with Supabase auth: %v", creds.Username, err)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
         return
     }
 
-    // Compare hashed password
-    err = bcrypt.CompareHashAndPassword([]byte(storedPassword), []byte(creds.Password))
-    if err != nil {
-        log.Printf("Password mismatch for user %s: %v", creds.Username, err)
-        http.Error(w, "Invalid username or password", http.StatusUnauthorized)
-        return
-    }
-
-    // Generate JWT with sub claim for RLS
-    token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-        "sub":      creds.Username,
-        "username": creds.Username,
-        "exp":      time.Now().Add(time.Hour * 24).Unix(),
-    })
-
-    tokenString, err := token.SignedString([]byte(jwtSecret))
-    if err != nil {
-        log.Printf("Error generating JWT for user %s: %v", creds.Username, err)
-        http.Error(w, "Failed to generate token", http.StatusInternalServerError)
-        return
-    }
-
-    log.Printf("Login successful for user: %s", creds.Username)
+    log.Printf("Login successful for user: %s (user_id: %s)", creds.Username, userID)
     json.NewEncoder(w).Encode(map[string]string{
-        "token":   tokenString,
-        "chat_id": creds.Username + ":", // Still needed, but won't allow user to choose receiver
+        "token":   authResponse.AccessToken,
+        "chat_id": userID + ":",
     })
 }
 
@@ -441,13 +436,15 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
         }
 
         claims, ok := token.Claims.(jwt.MapClaims)
-        if !ok || claims["username"] == nil {
+        if !ok || claims["sub"] == nil || claims["username"] == nil {
             log.Println("Invalid token claims")
             http.Error(w, "Invalid token", http.StatusUnauthorized)
             return
         }
+        userID := claims["sub"].(string)
         username := claims["username"].(string)
-        ctx := context.WithValue(r.Context(), "username", username)
+        ctx := context.WithValue(r.Context(), "user_id", userID)
+        ctx = context.WithValue(ctx, "username", username)
         r = r.WithContext(ctx)
 
         log.Println("Token validated successfully")
@@ -472,6 +469,13 @@ func canUsersChat(user1, user2 string) (bool, error) {
 
 // Allowed chats handler
 func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
+    userID, ok := r.Context().Value("user_id").(string)
+    if !ok {
+        log.Println("User ID not found in request context")
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
     username, ok := r.Context().Value("username").(string)
     if !ok {
         log.Println("Username not found in request context")
@@ -479,49 +483,72 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("Fetching allowed chats for user: %s", username)
+    log.Printf("Fetching allowed chats for user: %s (user_id: %s)", username, userID)
     var chats []Chat
     data, err := supaClient.From("chats").
         Select("id, participant1, participant2", "exact", false).
-        Filter("participant1", "eq", username).
-        Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", username, username), "or").
+        Filter("participant1", "eq", userID).
+        Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID), "or").
         ExecuteTo(&chats)
     if err != nil {
-        log.Printf("Error fetching allowed chats from Supabase for user %s: %v, response data: %s", username, err, string(data))
+        log.Printf("Error fetching allowed chats from Supabase for user %s: %v, response data: %s", userID, err, string(data))
         http.Error(w, "Failed to fetch allowed chats", http.StatusInternalServerError)
         return
     }
 
-    allowedUsers := []string{}
+    allowedUserIDs := []string{}
     for _, chat := range chats {
-        if chat.Participant1 == username {
-            allowedUsers = append(allowedUsers, chat.Participant2)
+        if chat.Participant1 == userID {
+            allowedUserIDs = append(allowedUserIDs, chat.Participant2)
         } else {
-            allowedUsers = append(allowedUsers, chat.Participant1)
+            allowedUserIDs = append(allowedUserIDs, chat.Participant1)
+        }
+    }
+
+    // Convert user IDs to usernames for the response
+    allowedUsernames := []string{}
+    for _, uid := range allowedUserIDs {
+        var users []map[string]interface{}
+        data, err := supaClient.From("users").Select("username", "exact", false).Eq("user_id", uid).ExecuteTo(&users)
+        if err != nil {
+            log.Printf("Error fetching username for user_id %s: %v, response data: %s", uid, err, string(data))
+            continue
+        }
+        if len(users) > 0 {
+            if username, ok := users[0]["username"].(string); ok {
+                allowedUsernames = append(allowedUsernames, username)
+            }
         }
     }
 
     // For non-admins, ensure they only have one chat partner (excluding admin)
-    if username != adminUsername {
+    if userID != adminUserID {
         nonAdminChats := []string{}
-        for _, user := range allowedUsers {
-            if user != adminUsername {
+        for _, user := range allowedUserIDs {
+            if user != adminUserID {
                 nonAdminChats = append(nonAdminChats, user)
             }
         }
         if len(nonAdminChats) > 1 {
-            log.Printf("Non-admin user %s has more than one non-admin chat partner, which is not allowed", username)
+            log.Printf("Non-admin user %s has more than one non-admin chat partner, which is not allowed", userID)
             http.Error(w, "Non-admin users can only have one chat partner", http.StatusForbidden)
             return
         }
     }
 
-    log.Printf("Found %d allowed chats for user %s", len(allowedUsers), username)
-    json.NewEncoder(w).Encode(allowedUsers)
+    log.Printf("Found %d allowed chats for user %s", len(allowedUsernames), userID)
+    json.NewEncoder(w).Encode(allowedUsernames)
 }
 
 // Upload handler for files
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
+    userID, ok := r.Context().Value("user_id").(string)
+    if !ok {
+        log.Println("User ID not found in request context")
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
     // Parse multipart form
     err := r.ParseMultipartForm(10 << 20) // 10 MB limit
     if err != nil {
@@ -546,7 +573,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Upload to Supabase Storage using HTTP request
+    // Upload to Supabase Storage
     bucket := "chat-files"
     filePath := fmt.Sprintf("%s-%d", handler.Filename, time.Now().UnixNano())
     uploadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucket, filePath)
@@ -584,7 +611,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         backendURL = "https://chat-backend-gxh8.onrender.com"
     }
     fileURL := fmt.Sprintf("%s/file/%s", backendURL, filePath)
-    log.Printf("File uploaded successfully, accessible at: %s", fileURL)
+    log.Printf("File uploaded successfully for user %s, accessible at: %s", userID, fileURL)
 
     json.NewEncoder(w).Encode(map[string]string{"file_url": fileURL})
 }
@@ -594,9 +621,9 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     filePath := vars["path"]
 
-    username, ok := r.Context().Value("username").(string)
+    userID, ok := r.Context().Value("user_id").(string)
     if !ok {
-        log.Println("Username not found in request context")
+        log.Println("User ID not found in request context")
         http.Error(w, "Unauthorized", http.StatusUnauthorized)
         return
     }
@@ -607,12 +634,13 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
     }
     fileURL := fmt.Sprintf("%s/file/%s", backendURL, filePath)
 
+    // Check if the user has access to the file (sender or receiver)
     var messages []Message
-    _, err := supaClient.From("messages").
+    data, err := supaClient.From("messages").
         Select("*", "exact", false).
         Eq("file_url", fileURL).
-        Filter("sender", "eq", username).
-        Or(fmt.Sprintf("sender.eq.%s,receiver.eq.%s", username, username), "or").
+        Filter("sender", "eq", userID).
+        Or(fmt.Sprintf("sender.eq.%s,receiver.eq.%s", userID, userID), "or").
         ExecuteTo(&messages)
     if err != nil {
         log.Printf("Error checking file access in messages table: %v", err)
@@ -621,11 +649,12 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     if len(messages) == 0 {
-        log.Printf("User %s does not have access to file %s", username, filePath)
+        log.Printf("User %s does not have access to file %s", userID, filePath)
         http.Error(w, "Forbidden", http.StatusForbidden)
         return
     }
 
+    // Download the file from Supabase Storage
     downloadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), "chat-files", filePath)
     req, err := http.NewRequest("GET", downloadURL, nil)
     if err != nil {
@@ -669,7 +698,7 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("File served successfully to user %s: %s", username, filePath)
+    log.Printf("File served successfully to user %s: %s", userID, filePath)
 }
 
 // Messages handler
@@ -689,16 +718,16 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
     }
     sender, receiver := parts[0], parts[1]
 
-    username, ok := r.Context().Value("username").(string)
+    userID, ok := r.Context().Value("user_id").(string)
     if !ok {
-        log.Println("Username not found in request context")
+        log.Println("User ID not found in request context")
         http.Error(w, "Unauthorized", http.StatusUnauthorized)
         return
     }
 
     // Verify that the user is part of this chat
-    if username != sender {
-        log.Printf("User %s does not match sender %s in chat ID", username, sender)
+    if userID != sender {
+        log.Printf("User %s does not match sender %s in chat ID", userID, sender)
         http.Error(w, "Forbidden", http.StatusForbidden)
         return
     }
@@ -717,32 +746,32 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // For non-admins, ensure they only have one non-admin chat partner
-    if username != adminUsername {
+    if userID != adminUserID {
         var chats []Chat
         data, err := supaClient.From("chats").
             Select("id, participant1, participant2", "exact", false).
-            Filter("participant1", "eq", username).
-            Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", username, username), "or").
+            Filter("participant1", "eq", userID).
+            Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID), "or").
             ExecuteTo(&chats)
         if err != nil {
-            log.Printf("Error fetching chats for user %s: %v, response data: %s", username, err, string(data))
+            log.Printf("Error fetching chats for user %s: %v, response data: %s", userID, err, string(data))
             http.Error(w, "Internal server error", http.StatusInternalServerError)
             return
-    }
+        }
 
         nonAdminChats := 0
         for _, chat := range chats {
             otherUser := chat.Participant1
-            if chat.Participant1 == username {
+            if chat.Participant1 == userID {
                 otherUser = chat.Participant2
             }
-            if otherUser != adminUsername {
+            if otherUser != adminUserID {
                 nonAdminChats++
             }
         }
 
         if nonAdminChats > 1 {
-            log.Printf("Non-admin user %s has more than one non-admin chat partner, which is not allowed", username)
+            log.Printf("Non-admin user %s has more than one non-admin chat partner, which is not allowed", userID)
             http.Error(w, "Non-admin users can only have one chat partner", http.StatusForbidden)
             return
         }
@@ -776,36 +805,43 @@ func registerPushHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    if pushReg.Username == "" || pushReg.Token == "" {
-        log.Println("Username or token missing in /register-push request")
-        http.Error(w, "Username and token are required", http.StatusBadRequest)
+    if pushReg.UserID == "" || pushReg.Token == "" {
+        log.Println("User ID or token missing in /register-push request")
+        http.Error(w, "User ID and token are required", http.StatusBadRequest)
+        return
+    }
+
+    userID, ok := r.Context().Value("user_id").(string)
+    if !ok || userID != pushReg.UserID {
+        log.Println("User ID mismatch in /register-push request")
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
         return
     }
 
     clientsMutex.Lock()
-    client, exists := clients[pushReg.Username]
+    client, exists := clients[pushReg.UserID]
     if !exists {
         client = &Client{}
     }
     client.PushToken = pushReg.Token
-    clients[pushReg.Username] = client
+    clients[pushReg.UserID] = client
     clientsMutex.Unlock()
 
-    log.Printf("Push token registered for user: %s", pushReg.Username)
+    log.Printf("Push token registered for user: %s", pushReg.UserID)
     w.WriteHeader(http.StatusOK)
     json.NewEncoder(w).Encode(map[string]string{"message": "Push token registered"})
 }
 
 // WebSocket handler
 func wsHandler(w http.ResponseWriter, r *http.Request) {
-    username := r.URL.Query().Get("username")
-    if username == "" {
-        log.Println("Username missing in /ws request")
-        http.Error(w, "Username is required", http.StatusBadRequest)
+    userID := r.URL.Query().Get("user_id")
+    if userID == "" {
+        log.Println("User ID missing in /ws request")
+        http.Error(w, "User ID is required", http.StatusBadRequest)
         return
     }
 
-    log.Printf("WebSocket connection attempt for user: %s", username)
+    log.Printf("WebSocket connection attempt for user: %s", userID)
 
     tokenString := r.Header.Get("Authorization")
     if tokenString != "" {
@@ -834,73 +870,92 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    claims, ok := token.Claims.(jwt.MapClaims)
+    if !ok || claims["sub"] == nil {
+        log.Println("Invalid token claims for WebSocket connection")
+        http.Error(w, "Invalid token", http.StatusUnauthorized)
+        return
+    }
+
+    tokenUserID := claims["sub"].(string)
+    if tokenUserID != userID {
+        log.Printf("User ID mismatch in WebSocket connection: token user_id %s, query user_id %s", tokenUserID, userID)
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
     log.Println("WebSocket token validated successfully")
 
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {
-        log.Printf("WebSocket upgrade error for user %s: %v", username, err)
+        log.Printf("WebSocket upgrade error for user %s: %v", userID, err)
         return
     }
 
     clientsMutex.Lock()
-    client, exists := clients[username]
+    client, exists := clients[userID]
     if !exists {
         client = &Client{}
     }
-    client = client
     client.Conn = conn
-    clients[username] = client
+    clients[userID] = client
     clientsMutex.Unlock()
 
     defer func() {
         clientsMutex.Lock()
-        if client, exists := clients[username]; exists {
+        if client, exists := clients[userID]; exists {
             client.Conn = nil
-            clients[username] = client
+            clients[userID] = client
         }
         clientsMutex.Unlock()
         conn.Close()
-        log.Printf("WebSocket connection closed for user: %s", username)
+        log.Printf("WebSocket connection closed for user: %s", userID)
     }()
 
     // For non-admins, ensure they only have one non-admin chat partner
-    if username != adminUsername {
+    if userID != adminUserID {
         var chats []Chat
         data, err := supaClient.From("chats").
             Select("id, participant1, participant2", "exact", false).
-            Filter("participant1", "eq", username).
-            Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", username, username), "or").
+            Filter("participant1", "eq", userID).
+            Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID), "or").
             ExecuteTo(&chats)
         if err != nil {
-            log.Printf("Error fetching chats for user %s in WebSocket handler: %v, response data: %s", username, err, string(data))
+            log.Printf("Error fetching chats for user %s in WebSocket handler: %v, response data: %s", userID, err, string(data))
             return
         }
 
         nonAdminChats := 0
         for _, chat := range chats {
             otherUser := chat.Participant1
-            if chat.Participant1 == username {
+            if chat.Participant1 == userID {
                 otherUser = chat.Participant2
             }
-            if otherUser != adminUsername {
+            if otherUser != adminUserID {
                 nonAdminChats++
             }
         }
 
         if nonAdminChats > 1 {
-            log.Printf("Non-admin user %s has more than one non-admin chat partner, which is not allowed", username)
+            log.Printf("Non-admin user %s has more than one non-admin chat partner, which is not allowed", userID)
             return
         }
     }
 
-    log.Printf("WebSocket connection established for user: %s", username)
+    log.Printf("WebSocket connection established for user: %s", userID)
 
     for {
         var msg Message
         err := conn.ReadJSON(&msg)
         if err != nil {
-            log.Printf("WebSocket read error for user %s: %v", username, err)
+            log.Printf("WebSocket read error for user %s: %v", userID, err)
             break
+        }
+
+        // Validate that the sender matches the authenticated user
+        if msg.Sender != userID {
+            log.Printf("Sender %s does not match authenticated user %s", msg.Sender, userID)
+            continue
         }
 
         // Validate that the sender and receiver are allowed to chat
@@ -932,7 +987,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 var result []map[string]interface{}
                 data, err := supaClient.From("messages").Insert(newMessage, false, "", "representation", "exact").ExecuteTo(&result)
                 if err != nil {
-                    log.Printf("Error storing message in Supabase for user %s: %v, response data: %s", username, err, string(data))
+                    log.Printf("Error storing message in Supabase for user %s: %v, response data: %s", userID, err, string(data))
                     continue
                 }
             } else {
@@ -944,7 +999,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             if exists && receiverClient.Conn != nil {
                 err = receiverClient.Conn.WriteJSON(msg)
                 if err != nil {
-                    log.Printf("WebSocket write error for user %s to receiver %s: %v", username, msg.Receiver, err)
+                    log.Printf("WebSocket write error for user %s to receiver %s: %v", userID, msg.Receiver, err)
                 }
             } else if exists && receiverClient.PushToken != "" {
                 if !fcmEnabled {
@@ -952,14 +1007,23 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                     clientsMutex.Unlock()
                     continue
                 }
+                // Fetch sender's username for notification
+                var users []map[string]interface{}
+                data, err := supaClient.From("users").Select("username", "exact", false).Eq("user_id", msg.Sender).ExecuteTo(&users)
+                senderUsername := msg.Sender
+                if err == nil && len(users) > 0 {
+                    if username, ok := users[0]["username"].(string); ok {
+                        senderUsername = username
+                    }
+                }
                 message := &messaging.Message{
                     Notification: &messaging.Notification{
-                        Title: fmt.Sprintf("New message from %s", msg.Sender),
+                        Title: fmt.Sprintf("New message from %s", senderUsername),
                         Body:  msg.Content,
                     },
                     Token: receiverClient.PushToken,
                 }
-                _, err := fcmClient.Send(context.Background(), message)
+                _, err = fcmClient.Send(context.Background(), message)
                 if err != nil {
                     log.Printf("Error sending push notification to %s: %v", msg.Receiver, err)
                 } else {
@@ -974,7 +1038,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             if exists && receiverClient.Conn != nil {
                 err = receiverClient.Conn.WriteJSON(msg)
                 if err != nil {
-                    log.Printf("WebSocket write error for user %s to receiver %s: %v", username, msg.Receiver, err)
+                    log.Printf("WebSocket write error for user %s to receiver %s: %v", userID, msg.Receiver, err)
                 }
             } else if exists && receiverClient.PushToken != "" && msg.Signal.Type == "call-initiate" {
                 if !fcmEnabled {
@@ -982,9 +1046,18 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                     clientsMutex.Unlock()
                     continue
                 }
+                // Fetch sender's username for notification
+                var users []map[string]interface{}
+                data, err := supaClient.From("users").Select("username", "exact", false).Eq("user_id", msg.Sender).ExecuteTo(&users)
+                senderUsername := msg.Sender
+                if err == nil && len(users) > 0 {
+                    if username, ok := users[0]["username"].(string); ok {
+                        senderUsername = username
+                    }
+                }
                 message := &messaging.Message{
                     Notification: &messaging.Notification{
-                        Title: fmt.Sprintf("Incoming %s call from %s", msg.Signal.CallType, msg.Sender),
+                        Title: fmt.Sprintf("Incoming %s call from %s", msg.Signal.CallType, senderUsername),
                         Body:  "Tap to accept the call",
                     },
                     Data: map[string]string{
@@ -993,7 +1066,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                     },
                     Token: receiverClient.PushToken,
                 }
-                _, err := fcmClient.Send(context.Background(), message)
+                _, err = fcmClient.Send(context.Background(), message)
                 if err != nil {
                     log.Printf("Error sending call notification to %s: %v", msg.Receiver, err)
                 } else {
@@ -1013,7 +1086,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 var result []map[string]interface{}
                 data, err := supaClient.From("calls").Insert(newCall, false, "", "representation", "exact").ExecuteTo(&result)
                 if err != nil {
-                    log.Printf("Error storing call in Supabase for user %s: %v, response data: %s", username, err, string(data))
+                    log.Printf("Error storing call in Supabase for user %s: %v, response data: %s", userID, err, string(data))
                 }
             } else if msg.Signal.Type == "call-accept" || msg.Signal.Type == "call-reject" {
                 var calls []map[string]interface{}
