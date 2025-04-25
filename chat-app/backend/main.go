@@ -44,9 +44,9 @@ type Client struct {
 
 // Chat struct to match the chats table schema
 type Chat struct {
-    ID    string `json:"id"`
-    User1 string `json:"user1"`
-    User2 string `json:"user2"`
+    ID          string `json:"id"`
+    Participant1 string `json:"participant1"`
+    Participant2 string `json:"participant2"`
 }
 
 // Message struct for chat messages
@@ -450,7 +450,7 @@ func canUsersChat(user1, user2 string) (bool, error) {
     var chats []Chat
     _, err := supaClient.From("chats").
         Select("*", "exact", false).
-        Or(fmt.Sprintf("and(user1.eq.%s,user2.eq.%s)", user1, user2), fmt.Sprintf("and(user1.eq.%s,user2.eq.%s)", user2, user1)).
+        Or(fmt.Sprintf("and(participant1.eq.%s,participant2.eq.%s)", user1, user2), fmt.Sprintf("and(participant1.eq.%s,participant2.eq.%s)", user2, user1)).
         ExecuteTo(&chats)
     if err != nil {
         return false, err
@@ -470,8 +470,8 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
     log.Printf("Fetching allowed chats for user: %s", username)
     var chats []Chat
     data, err := supaClient.From("chats").
-        Select("id, user1, user2", "exact", false).
-        Or(fmt.Sprintf("user1.eq.%s", username), fmt.Sprintf("user2.eq.%s", username)).
+        Select("id, participant1, participant2", "exact", false).
+        Or(fmt.Sprintf("participant1.eq.%s", username), fmt.Sprintf("participant2.eq.%s", username)).
         ExecuteTo(&chats)
     if err != nil {
         log.Printf("Error fetching allowed chats from Supabase for user %s: %v, response data: %s", username, err, string(data))
@@ -481,10 +481,10 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
 
     allowedUsers := []string{}
     for _, chat := range chats {
-        if chat.User1 == username {
-            allowedUsers = append(allowedUsers, chat.User2)
+        if chat.Participant1 == username {
+            allowedUsers = append(allowedUsers, chat.Participant2)
         } else {
-            allowedUsers = append(allowedUsers, chat.User1)
+            allowedUsers = append(allowedUsers, chat.Participant1)
         }
     }
 
@@ -706,8 +706,8 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
     if username != adminUsername {
         var chats []Chat
         data, err := supaClient.From("chats").
-            Select("id, user1, user2", "exact", false).
-            Or(fmt.Sprintf("user1.eq.%s", username), fmt.Sprintf("user2.eq.%s", username)).
+            Select("id, participant1, participant2", "exact", false).
+            Or(fmt.Sprintf("participant1.eq.%s", username), fmt.Sprintf("participant2.eq.%s", username)).
             ExecuteTo(&chats)
         if err != nil {
             log.Printf("Error fetching chats for user %s: %v, response data: %s", username, err, string(data))
@@ -717,9 +717,9 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 
         nonAdminChats := 0
         for _, chat := range chats {
-            otherUser := chat.User1
-            if chat.User1 == username {
-                otherUser = chat.User2
+            otherUser := chat.Participant1
+            if chat.Participant1 == username {
+                otherUser = chat.Participant2
             }
             if otherUser != adminUsername {
                 nonAdminChats++
@@ -849,8 +849,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
     if username != adminUsername {
         var chats []Chat
         data, err := supaClient.From("chats").
-            Select("id, user1, user2", "exact", false).
-            Or(fmt.Sprintf("user1.eq.%s", username), fmt.Sprintf("user2.eq.%s", username)).
+            Select("id, participant1, participant2", "exact", false).
+            Or(fmt.Sprintf("participant1.eq.%s", username), fmt.Sprintf("participant2.eq.%s", username)).
             ExecuteTo(&chats)
         if err != nil {
             log.Printf("Error fetching chats for user %s in WebSocket handler: %v, response data: %s", username, err, string(data))
@@ -859,9 +859,9 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
         nonAdminChats := 0
         for _, chat := range chats {
-            otherUser := chat.User1
-            if chat.User1 == username {
-                otherUser = chat.User2
+            otherUser := chat.Participant1
+            if chat.Participant1 == username {
+                otherUser = chat.Participant2
             }
             if otherUser != adminUsername {
                 nonAdminChats++
