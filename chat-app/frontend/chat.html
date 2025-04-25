@@ -408,7 +408,7 @@
                                 },
                                 body: JSON.stringify({
                                     username: username,
-                                    token: subscription
+                                    token: JSON.stringify(subscription)
                                 })
                             }).catch(err => {
                                 console.error('Error registering push subscription:', err);
