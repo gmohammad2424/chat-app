@@ -184,12 +184,22 @@ func main() {
         fmt.Fprintf(w, "Chat App Backend")
     })
 
-    // CORS middleware
+    // CORS middleware with logging
     corsHandler := handlers.CORS(
         handlers.AllowedOrigins([]string{"*"}),
         handlers.AllowedMethods([]string{"GET", "POST", "OPTIONS"}),
         handlers.AllowedHeaders([]string{"Content-Type", "Authorization"}),
+        handlers.AllowCredentials(),
+        handlers.OptionStatusCode(http.StatusNoContent),
     )
+
+    // Wrap the router with a logging middleware to debug CORS requests
+    loggedRouter := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        log.Printf("Received request: %s %s from %s", r.Method, r.URL.Path, r.Header.Get("Origin"))
+        log.Printf("Request headers: %v", r.Header)
+        corsHandler(r).ServeHTTP(w, r)
+        log.Printf("Response headers: %v", w.Header())
+    })
 
     // Start server
     port := os.Getenv("PORT")
@@ -197,7 +207,7 @@ func main() {
         port = "8080"
     }
     log.Printf("Server running on port %s", port)
-    log.Fatal(http.ListenAndServe(":"+port, corsHandler(r)))
+    log.Fatal(http.ListenAndServe(":"+port, loggedRouter))
 }
 
 // Register handler
@@ -718,7 +728,7 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
             log.Printf("Error fetching chats for user %s: %v, response data: %s", username, err, string(data))
             http.Error(w, "Internal server error", http.StatusInternalServerError)
             return
-        }
+    }
 
         nonAdminChats := 0
         for _, chat := range chats {
