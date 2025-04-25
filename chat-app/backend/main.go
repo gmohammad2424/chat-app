@@ -310,12 +310,8 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create user in Supabase auth
-    authUser, err := authClient.Signup(gotrue.SignupCredentials{
-        Email:    user.Username + "@example.com", // Generate a dummy email
-        Password: user.Password,
-        Data: map[string]interface{}{
-            "username": user.Username,
-        },
+    authUser, err := authClient.Signup(user.Username+"@example.com", user.Password, map[string]interface{}{
+        "username": user.Username,
     })
     if err != nil {
         log.Printf("Error creating user in Supabase auth: %v", err)
@@ -376,12 +372,8 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create user in Supabase auth
-    authUser, err := authClient.Signup(gotrue.SignupCredentials{
-        Email:    user.Email,
-        Password: user.Password,
-        Data: map[string]interface{}{
-            "username": user.Username,
-        },
+    authUser, err := authClient.Signup(user.Email, user.Password, map[string]interface{}{
+        "username": user.Username,
     })
     if err != nil {
         log.Printf("Error creating user in Supabase auth: %v", err)
@@ -390,10 +382,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign in the user to get a JWT
-    authResponse, err := authClient.SignInWithPassword(gotrue.SignInWithPasswordCredentials{
-        Email:    user.Email,
-        Password: user.Password,
-    })
+    authResponse, err := authClient.SignIn(user.Email, user.Password)
     if err != nil {
         log.Printf("Error signing in user %s to get JWT: %v", user.Username, err)
         http.Error(w, "Failed to generate token", http.StatusInternalServerError)
@@ -472,10 +461,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign in user with Supabase auth to verify credentials
-    authResponse, err := authClient.SignInWithPassword(gotrue.SignInWithPasswordCredentials{
-        Email:    email,
-        Password: creds.Password,
-    })
+    authResponse, err := authClient.SignIn(email, creds.Password)
     if err != nil {
         log.Printf("Error signing in user %s with Supabase auth: %v", creds.Username, err)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
