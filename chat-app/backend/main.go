@@ -27,6 +27,7 @@ import (
     "github.com/supabase-community/gotrue-go"
     "github.com/supabase-community/gotrue-go/types"
     supabaseClient "github.com/supabase-community/supabase-go"
+    "github.com/supabase-community/storage-go"
 )
 
 // Global variables
@@ -35,6 +36,7 @@ var (
     clientsMutex sync.Mutex                 // Mutex for thread-safe access
     fcmClient    *messaging.Client          // Firebase Cloud Messaging client
     supaClient   *supabaseClient.Client     // Supabase client for database
+    storageClient *storage_go.Client        // Supabase client for storage
     authClient   gotrue.Client              // Supabase client for authentication
     jwtSecret    string                     // JWT secret for token generation
     encryptionKey []byte                    // Encryption key for file URLs
@@ -192,6 +194,9 @@ func main() {
         log.Fatalf("Error initializing Supabase client: %v", errClient)
     }
 
+    // Storage client
+    storageClient = storage_go.NewClient(supabaseURL+"/storage/v1", supabaseServiceKey, nil)
+
     // Auth client (uses anon key for user authentication)
     authClient = gotrue.New(supabaseURL, supabaseAnonKey)
     if authClient == nil {
@@ -228,6 +233,7 @@ func main() {
     // API routes
     r.HandleFunc("/signup", signupHandler).Methods("POST")
     r.HandleFunc("/login", loginHandler).Methods("POST")
+    r.HandleFunc("/users", authMiddleware(usersHandler)).Methods("GET") // Added endpoint for chat.html
     r.HandleFunc("/messages", authMiddleware(messagesHandler)).Methods("GET")
     r.HandleFunc("/allowed-chats", authMiddleware(allowedChatsHandler)).Methods("GET")
     r.HandleFunc("/upload", authMiddleware(uploadHandler)).Methods("POST")
@@ -253,7 +259,7 @@ func main() {
     loggedRouter := corsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         log.Printf("Received request: %s %s from %s", r.Method, r.URL.Path, r.Header.Get("Origin"))
         log.Printf("Request headers: %v", r.Header)
-        r.ServeHTTP(w, r)
+        corsHandler(r).ServeHTTP(w, r) // Fixed: Use corsHandler to serve the request
         log.Printf("Response headers: %v", w.Header())
     }))
 
@@ -283,7 +289,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
     // Check if username exists
     var existingUsers []map[string]interface{}
-    _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", user.Username).ExecuteTo(&existingUsers)
+    _, _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", user.Username).ExecuteTo(&existingUsers)
     if err != nil {
         log.Printf("Error checking user in Supabase: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -331,7 +337,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         "email":    user.Email,
     }
     var result []map[string]interface{}
-    _, err = supaClient.From("users").Insert(newUser, false, "", "representation", "exact").ExecuteTo(&result)
+    _, _, err = supaClient.From("users").Insert(newUser, false, "", "representation", "exact").ExecuteTo(&result)
     if err != nil {
         log.Printf("Error registering user %s in Supabase: %v", user.Username, err)
         http.Error(w, "Failed to register user", http.StatusInternalServerError)
@@ -367,7 +373,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
     // Fetch user from users table to get email
     var users []map[string]interface{}
-    _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).ExecuteTo(&users)
+    _, _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).ExecuteTo(&users)
     if err != nil {
         log.Printf("Error fetching user %s from Supabase: %v", creds.Username, err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -453,6 +459,19 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
     }
 }
 
+// Users handler (added for chat.html to fetch users)
+func usersHandler(w http.ResponseWriter, r *http.Request) {
+    var users []map[string]interface{}
+    _, _, err := supaClient.From("users").Select("user_id, username", "exact", false).ExecuteTo(&users)
+    if err != nil {
+        log.Printf("Error fetching users: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    json.NewEncoder(w).Encode(users)
+}
+
 // Messages handler
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
     userID := r.Context().Value("user_id").(string)
@@ -465,7 +484,7 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 
     // Fetch messages for the chat
     var messages []Message
-    _, err := supaClient.From("messages").Select("*", "exact", false).Eq("chat_id", chatID).ExecuteTo(&messages)
+    _, _, err := supaClient.From("messages").Select("*", "exact", false).Eq("chat_id", chatID).ExecuteTo(&messages)
     if err != nil {
         log.Printf("Error fetching messages for chat %s: %v", chatID, err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -482,8 +501,8 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
     // Fetch chats where user is participant1 or participant2
     var chats []Chat
     query := supaClient.From("chats").Select("*", "exact", false)
-    query = query.Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID))
-    _, err := query.ExecuteTo(&chats)
+    query = query.Filter("participant1", "eq", userID).Filter("participant2", "eq", userID, "or")
+    _, _, err := query.ExecuteTo(&chats)
     if err != nil {
         log.Printf("Error fetching allowed chats for user %s: %v", userID, err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -520,9 +539,9 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Upload to Supabase storage
+    // Upload to Supabase storage using storage-go
     fileName := fmt.Sprintf("%s/%s", userID, handler.Filename)
-    _, err = supaClient.Storage.From("chat-files").Upload(fileName, bytes.NewReader(fileBytes))
+    _, err = storageClient.UploadFile("chat-files", fileName, bytes.NewReader(fileBytes))
     if err != nil {
         log.Printf("Error uploading file to Supabase: %v", err)
         http.Error(w, "Unable to upload file", http.StatusInternalServerError)
@@ -530,7 +549,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Generate signed URL
-    signedURL, err := supaClient.Storage.From("chat-files").CreateSignedURL(fileName, 3600)
+    signedURL, err := storageClient.CreateSignedUrl("chat-files", fileName, 3600)
     if err != nil {
         log.Printf("Error generating signed URL: %v", err)
         http.Error(w, "Unable to generate file URL", http.StatusInternalServerError)
@@ -660,6 +679,9 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         log.Printf("WebSocket client disconnected: %s", userID)
     }()
 
+    // Define context for FCM
+    ctx := context.Background()
+
     // Handle messages
     for {
         var msg Message
@@ -688,7 +710,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 "status":   msg.Status,
             }
             var result []map[string]interface{}
-            _, err = supaClient.From("messages").Insert(messageData, false, "", "representation", "exact").ExecuteTo(&result)
+            _, _, err = supaClient.From("messages").Insert(messageData, false, "", "representation", "exact").ExecuteTo(&result)
             if err != nil {
                 log.Printf("Error saving message to Supabase: %v", err)
                 continue
@@ -703,7 +725,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 } else {
                     msg.Status = "delivered"
                     // Update message status in database
-                    _, err = supaClient.From("messages").Update(map[string]interface{}{"status": "delivered"}, "", "exact").Eq("id", result[0]["id"].(string)).Execute()
+                    _, _, err = supaClient.From("messages").Update(map[string]interface{}{"status": "delivered"}, "", "exact").Eq("id", result[0]["id"].(string)).Execute()
                     if err != nil {
                         log.Printf("Error updating message status: %v", err)
                     }
@@ -750,13 +772,13 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                     "start_time": time.Now(),
                     "status":     "initiated",
                 }
-                _, err = supaClient.From("calls").Insert(callData, false, "", "representation", "exact").Execute()
+                _, _, err = supaClient.From("calls").Insert(callData, false, "", "representation", "exact").Execute()
                 if err != nil {
                     log.Printf("Error logging call to Supabase: %v", err)
                 }
             } else if msg.Signal.Type == "call-accept" || msg.Signal.Type == "call-reject" {
                 // Update call status
-                _, err = supaClient.From("calls").Update(map[string]interface{}{
+                _, _, err = supaClient.From("calls").Update(map[string]interface{}{
                     "status":    msg.Signal.CallStatus,
                     "end_time":  time.Now(),
                 }, "", "exact").Eq("caller", msg.Sender).Eq("callee", msg.Receiver).Execute()
