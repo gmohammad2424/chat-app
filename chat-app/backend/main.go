@@ -498,7 +498,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 
 // Messages handler
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
-    userID := r.Context().Value("user_id").(string)
+   // userID := r.Context().Value("user_id").(string)
     chatID := r.URL.Query().Get("chat_id")
     if chatID == "" {
         log.Println("chat_id parameter missing in /messages request")
