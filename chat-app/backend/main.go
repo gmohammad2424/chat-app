@@ -232,21 +232,21 @@ func main() {
     }
 
     // Initialize router
-    r := mux.NewRouter()
+    router := mux.NewRouter()
 
     // API routes
-    r.HandleFunc("/signup", signupHandler).Methods("POST")
-    r.HandleFunc("/login", loginHandler).Methods("POST")
-    r.HandleFunc("/users", authMiddleware(usersHandler)).Methods("GET")
-    r.HandleFunc("/messages", authMiddleware(messagesHandler)).Methods("GET")
-    r.HandleFunc("/allowed-chats", authMiddleware(allowedChatsHandler)).Methods("GET")
-    r.HandleFunc("/upload", authMiddleware(uploadHandler)).Methods("POST")
-    r.HandleFunc("/file/{path:.*}", authMiddleware(fileHandler)).Methods("GET")
-    r.HandleFunc("/register-push", authMiddleware(registerPushHandler)).Methods("POST")
-    r.HandleFunc("/ws", wsHandler).Methods("GET")
+    router.HandleFunc("/signup", signupHandler).Methods("POST")
+    router.HandleFunc("/login", loginHandler).Methods("POST")
+    router.HandleFunc("/users", authMiddleware(usersHandler)).Methods("GET")
+    router.HandleFunc("/messages", authMiddleware(messagesHandler)).Methods("GET")
+    router.HandleFunc("/allowed-chats", authMiddleware(allowedChatsHandler)).Methods("GET")
+    router.HandleFunc("/upload", authMiddleware(uploadHandler)).Methods("POST")
+    router.HandleFunc("/file/{path:.*}", authMiddleware(fileHandler)).Methods("GET")
+    router.HandleFunc("/register-push", authMiddleware(registerPushHandler)).Methods("POST")
+    router.HandleFunc("/ws", wsHandler).Methods("GET")
 
     // Root handler
-    r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         fmt.Fprintf(w, "Chat App Backend")
     })
 
@@ -260,20 +260,20 @@ func main() {
     )
 
     // Wrap router with CORS and logging
-    loggedRouter := corsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        log.Printf("Received request: %s %s from %s", r.Method, r.URL.Path, r.Header.Get("Origin"))
-        log.Printf("Request headers: %v", r.Header)
-        r.ServeHTTP(w, r) // Fixed: Use the router to serve the request
-        log.Printf("Response headers: %v", w.Header())
-    }))
+    loggedRouter := corsHandler(router)
 
-    // Start server
+    // Start server with logging
     port := os.Getenv("PORT")
     if port == "" {
         port = "8080"
     }
     log.Printf("Server running on port %s", port)
-    log.Fatal(http.ListenAndServe(":"+port, loggedRouter))
+    log.Fatal(http.ListenAndServe(":"+port, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        log.Printf("Received request: %s %s from %s", r.Method, r.URL.Path, r.Header.Get("Origin"))
+        log.Printf("Request headers: %v", r.Header)
+        loggedRouter.ServeHTTP(w, r)
+        log.Printf("Response headers: %v", w.Header())
+    })))
 }
 
 // Signup handler
@@ -530,9 +530,7 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
     // Fetch chats where user is participant1 or participant2
     var chats []Chat
     query := postgrestClient.From("chats").Select("*", "exact", false)
-    query = query.Filter("participant1", "eq", userID)
-    query = query.Filter("participant2", "eq", userID)
-    query = query.Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID))
+    query = query.Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID), "")
     data, _, err := query.Execute()
     if err != nil {
         log.Printf("Error fetching allowed chats for user %s: %v", userID, err)
@@ -593,7 +591,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Extract the URL string from SignedUrlResponse
-    signedURL := signedURLResponse.SignedUrl
+    signedURL := signedURLResponse.SignedURL
 
     // Encrypt the URL
     encryptedURL, err := encryptString(signedURL)
