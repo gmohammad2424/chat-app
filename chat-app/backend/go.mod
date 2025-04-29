@@ -9,7 +9,7 @@ require (
     github.com/gorilla/mux v1.8.0
     github.com/gorilla/websocket v1.5.0
     github.com/joho/godotenv v1.5.1
-    github.com/kwoodhouse93/gotrue-go v1.1.0
+    github.com/supabase-community/gotrue-go v1.2.1
     github.com/supabase-community/postgrest-go v0.0.10
     github.com/supabase-community/storage-go v0.7.0
 )
