@@ -41,7 +41,7 @@ var (
     jwtSecret    string                     // JWT secret for token generation
     encryptionKey []byte                    // Encryption key for file URLs
     fcmEnabled   bool                       // Flag to indicate if FCM is enabled
-    adminUserID  = "7b6ebd4a-0c5c-4ccf-aa6e-89adb0c12e2f" // Admin's UUID
+    adminUserID  = "550e8400-e29b-41d4-a716-446655440000" // Admin's UUID
     supabaseURL  string
     supabaseServiceKey string
 )
@@ -187,10 +187,27 @@ func main() {
     if supabaseURL == "" || supabaseServiceKey == "" || supabaseAnonKey == "" {
         log.Fatal("SUPABASE_URL, SUPABASE_SERVICE_KEY, and SUPABASE_ANON_KEY environment variables are required")
     }
-    log.Printf("SUPABASE_URL: %s", supabaseURL)
+
+    // Clean and validate Supabase URL
+    supabaseURL = strings.TrimSpace(supabaseURL)
+    supabaseURL = strings.TrimSuffix(supabaseURL, "/")
+    if !strings.HasPrefix(supabaseURL, "https://") {
+        supabaseURL = "https://" + supabaseURL
+    }
+    // Remove any duplicate .supabase.co
+    if strings.Count(supabaseURL, ".supabase.co") > 1 {
+        parts := strings.Split(supabaseURL, ".supabase.co")
+        supabaseURL = parts[0] + ".supabase.co"
+    }
+    if !strings.HasSuffix(supabaseURL, ".supabase.co") || !strings.Contains(supabaseURL, "vridcilbrgyrxxmnjcqq") {
+        log.Fatal("SUPABASE_URL must be in the format https://vridcilbrgyrxxmnjcqq.supabase.co")
+    }
+    log.Printf("Cleaned SUPABASE_URL: %s", supabaseURL)
 
     // PostgREST client (for database operations)
-    postgrestClient = postgrest.NewClient(supabaseURL+"/rest/v1", "", map[string]string{
+    postgrestURL := supabaseURL + "/rest/v1"
+    log.Printf("PostgREST URL: %s", postgrestURL)
+    postgrestClient = postgrest.NewClient(postgrestURL, "", map[string]string{
         "Authorization": "Bearer " + supabaseServiceKey,
         "apikey":        supabaseServiceKey,
     })
@@ -199,9 +216,12 @@ func main() {
     }
 
     // Storage client
-    storageClient = storage_go.NewClient(supabaseURL+"/storage/v1", supabaseServiceKey, nil)
+    storageURL := supabaseURL + "/storage/v1"
+    log.Printf("Storage URL: %s", storageURL)
+    storageClient = storage_go.NewClient(storageURL, supabaseServiceKey, nil)
 
     // Auth client (uses anon key for user authentication)
+    log.Printf("Auth URL: %s", supabaseURL)
     authClient = gotrue.New(supabaseURL, supabaseAnonKey)
     if authClient == nil {
         log.Fatal("Failed to initialize Supabase auth client")
@@ -498,7 +518,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 
 // Messages handler
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
-   // userID := r.Context().Value("user_id").(string)
+    userID := r.Context().Value("user_id").(string)
     chatID := r.URL.Query().Get("chat_id")
     if chatID == "" {
         log.Println("chat_id parameter missing in /messages request")
