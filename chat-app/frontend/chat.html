@@ -231,7 +231,7 @@
         let chatId = null;
         let currentUserId = null;
         let otherParticipantId = null;
-        let messagesMap = new Map(); // Map message IDs to DOM elements for status updates
+        let messagesMap = new Map();
         let encryptionKey = null;
 
         // Function to display errors
@@ -242,7 +242,7 @@
             console.error(message);
         }
 
-        // Generate or load encryption key (simplified for demo; in production, use a secure key exchange)
+        // Generate or load encryption key
         async function generateEncryptionKey() {
             let key = localStorage.getItem('chat_encryption_key');
             if (!key) {
@@ -303,7 +303,9 @@
             const response = await fetch(`https://chat-backend-gxh8.onrender.com/chat/${chatId}`, {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
-            if (!response.ok) throw new Error('Failed to fetch chat details');
+            if (!response.ok) {
+                throw new Error(`Failed to fetch chat details: ${response.status} ${response.statusText}`);
+            }
             return await response.json();
         }
 
@@ -311,13 +313,20 @@
         async function initializeChat() {
             await generateEncryptionKey();
 
+            // Get chat_id from URL
             const urlParams = new URLSearchParams(window.location.search);
-            chatId = urlParams.get('chat_id');
-            if (!chatId || isNaN(chatId)) {
-                showError('Error: Chat ID is missing or invalid');
-                throw new Error('Chat ID is required and must be a number');
+            let chatIdParam = urlParams.get('chat_id');
+            if (!chatIdParam) {
+                showError('Error: Chat ID is missing');
+                throw new Error('Chat ID is required');
             }
-            chatId = parseInt(chatId); // Ensure chatId is an integer
+
+            // Parse chat_id and validate
+            chatId = parseInt(chatIdParam, 10);
+            if (isNaN(chatId)) {
+                showError('Error: Chat ID must be a valid number');
+                throw new Error('Chat ID must be a number');
+            }
 
             currentUserId = localStorage.getItem('chat_id')?.split(':')[0];
             if (!currentUserId) {
@@ -326,7 +335,14 @@
             }
 
             // Fetch chat details to get participants
-            const chatDetails = await fetchChatDetails(chatId);
+            let chatDetails;
+            try {
+                chatDetails = await fetchChatDetails(chatId);
+            } catch (error) {
+                showError(`Error: Chat not found (ID: ${chatId}). Please check if the chat exists.`);
+                throw new Error(`Failed to fetch chat details: ${error.message}`);
+            }
+
             const { participant1, participant2 } = chatDetails;
             if (!participant1 || !participant2) {
                 showError('Error: Invalid chat participants');
@@ -403,7 +419,6 @@
             chatArea.appendChild(messageDiv);
             chatArea.scrollTop = chatArea.scrollHeight;
 
-            // Store message for status updates
             if (msg.sender === currentUserId) {
                 messagesMap.set(msg.id || `${msg.sender}-${msg.timestamp}`, statusSpan);
             }
@@ -421,7 +436,6 @@
                     }
                     displayMessage(msg);
                     if (msg.sender !== currentUserId && msg.status === 'delivered') {
-                        // Mark as seen
                         const seenMsg = { ...msg, status: 'seen' };
                         ws.send(JSON.stringify(seenMsg));
                     }
@@ -451,7 +465,7 @@
                 status: 'sent'
             };
             ws.send(JSON.stringify(msg));
-            msg.content = content; // Display unencrypted content locally
+            msg.content = content;
             displayMessage(msg);
             messageInput.value = '';
         });
