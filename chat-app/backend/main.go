@@ -263,7 +263,7 @@ func main() {
     loggedRouter := corsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         log.Printf("Received request: %s %s from %s", r.Method, r.URL.Path, r.Header.Get("Origin"))
         log.Printf("Request headers: %v", r.Header)
-        corsHandler(r).ServeHTTP(w, r)
+        r.ServeHTTP(w, r) // Fixed: Use the router to serve the request
         log.Printf("Response headers: %v", w.Header())
     }))
 
@@ -530,7 +530,9 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
     // Fetch chats where user is participant1 or participant2
     var chats []Chat
     query := postgrestClient.From("chats").Select("*", "exact", false)
-    query = query.Filter("participant1", "eq", userID).Filter("participant2", "eq", userID, "or")
+    query = query.Filter("participant1", "eq", userID)
+    query = query.Filter("participant2", "eq", userID)
+    query = query.Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID))
     data, _, err := query.Execute()
     if err != nil {
         log.Printf("Error fetching allowed chats for user %s: %v", userID, err)
@@ -583,12 +585,15 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Generate signed URL
-    signedURL, err := storageClient.CreateSignedUrl("chat-files", fileName, 3600)
+    signedURLResponse, err := storageClient.CreateSignedUrl("chat-files", fileName, 3600)
     if err != nil {
         log.Printf("Error generating signed URL: %v", err)
         http.Error(w, "Unable to generate file URL", http.StatusInternalServerError)
         return
     }
+
+    // Extract the URL string from SignedUrlResponse
+    signedURL := signedURLResponse.SignedUrl
 
     // Encrypt the URL
     encryptedURL, err := encryptString(signedURL)
