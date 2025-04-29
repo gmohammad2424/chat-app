@@ -44,6 +44,7 @@ var (
     adminUserID  = "550e8400-e29b-41d4-a716-446655440000" // Admin's UUID
     supabaseURL  string
     supabaseServiceKey string
+    supabaseAnonKey    string
 )
 
 // Client struct for WebSocket connections
@@ -158,7 +159,7 @@ func main() {
     // Load environment variables
     err := godotenv.Load()
     if err != nil {
-        log.Println("No . MAINTAIN YOUR CODE STRUCTURE BUT UPDATE THE URL CLEANING LOGIC AND INITIALIZATION env file found, relying on environment variables")
+        log.Println("No .env file found, relying on environment variables")
     }
 
     // Get JWT secret
@@ -183,7 +184,7 @@ func main() {
     // Initialize Supabase clients
     supabaseURL = os.Getenv("SUPABASE_URL")
     supabaseServiceKey = os.Getenv("SUPABASE_SERVICE_KEY")
-    supabaseAnonKey := os.Getenv("SUPABASE_ANON_KEY")
+    supabaseAnonKey = os.Getenv("SUPABASE_ANON_KEY")
     if supabaseURL == "" || supabaseServiceKey == "" || supabaseAnonKey == "" {
         log.Fatal("SUPABASE_URL, SUPABASE_SERVICE_KEY, and SUPABASE_ANON_KEY environment variables are required")
     }
@@ -349,16 +350,51 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Sign in to get JWT
-    tokenRequest := types.TokenRequest{
-        GrantType: "password",
-        Email:     user.Email,
-        Password:  user.Password,
+    // Sign in to get JWT (using custom authentication)
+    tokenRequest := map[string]interface{}{
+        "grant_type": "password",
+        "email":      user.Email,
+        "password":   user.Password,
     }
-    authResponse, err := authClient.Token(tokenRequest)
+    tokenRequestBody, err := json.Marshal(tokenRequest)
+    if err != nil {
+        log.Printf("Error marshaling token request: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    authURL := supabaseURL + "/auth/v1/token?grant_type=password"
+    req, err := http.NewRequest("POST", authURL, bytes.NewBuffer(tokenRequestBody))
+    if err != nil {
+        log.Printf("Error creating token request: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("apikey", supabaseAnonKey)
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
     if err != nil {
         log.Printf("Error signing in user %s to get JWT: %v", user.Username, err)
         http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        log.Printf("Error signing in user %s: %s", user.Username, string(body))
+        http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+        return
+    }
+
+    var authResponse struct {
+        AccessToken string `json:"access_token"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&authResponse); err != nil {
+        log.Printf("Error decoding token response: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
@@ -443,16 +479,53 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Sign in with Supabase Auth
-    tokenRequest := types.TokenRequest{
-        GrantType: "password",
-        Email:     email,
-        Password:  creds.Password,
+    // Custom authentication request to Supabase
+    tokenRequest := map[string]interface{}{
+        "grant_type": "password",
+        "email":      email,
+        "password":   creds.Password,
     }
-    authResponse, err := authClient.Token(tokenRequest)
+    tokenRequestBody, err := json.Marshal(tokenRequest)
+    if err != nil {
+        log.Printf("Error marshaling token request for user %s: %v", creds.Username, err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    authURL := supabaseURL + "/auth/v1/token?grant_type=password"
+    log.Printf("Sending authentication request to: %s", authURL)
+
+    req, err := http.NewRequest("POST", authURL, bytes.NewBuffer(tokenRequestBody))
+    if err != nil {
+        log.Printf("Error creating token request for user %s: %v", creds.Username, err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("apikey", supabaseAnonKey)
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
     if err != nil {
         log.Printf("Error signing in user %s with Supabase auth: %v", creds.Username, err)
         http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        log.Printf("Error signing in user %s: %s", creds.Username, string(body))
+        http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+        return
+    }
+
+    var authResponse struct {
+        AccessToken string `json:"access_token"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&authResponse); err != nil {
+        log.Printf("Error decoding token response for user %s: %v", creds.Username, err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
@@ -521,6 +594,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 
 // Messages handler
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
+    userID := r.Context().Value("user_id").(string)
     chatID := r.URL.Query().Get("chat_id")
     if chatID == "" {
         log.Println("chat_id parameter missing in /messages request")
