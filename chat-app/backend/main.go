@@ -26,7 +26,7 @@ import (
     "github.com/joho/godotenv"
     "github.com/supabase-community/gotrue-go"
     "github.com/supabase-community/gotrue-go/types"
-    supabaseClient "github.com/supabase-community/supabase-go"
+    "github.com/supabase-community/postgrest-go"
     "github.com/supabase-community/storage-go"
 )
 
@@ -35,13 +35,15 @@ var (
     clients      = make(map[string]*Client) // Map of user_ids to WebSocket clients
     clientsMutex sync.Mutex                 // Mutex for thread-safe access
     fcmClient    *messaging.Client          // Firebase Cloud Messaging client
-    supaClient   *supabaseClient.Client     // Supabase client for database
+    postgrestClient *postgrest.Client       // PostgREST client for database operations
     storageClient *storage_go.Client        // Supabase client for storage
     authClient   gotrue.Client              // Supabase client for authentication
     jwtSecret    string                     // JWT secret for token generation
     encryptionKey []byte                    // Encryption key for file URLs
     fcmEnabled   bool                       // Flag to indicate if FCM is enabled
     adminUserID  = "550e8400-e29b-41d4-a716-446655440000" // Admin's UUID
+    supabaseURL  string
+    supabaseServiceKey string
 )
 
 // Client struct for WebSocket connections
@@ -179,19 +181,21 @@ func main() {
     }
 
     // Initialize Supabase clients
-    supabaseURL := os.Getenv("SUPABASE_URL")
-    supabaseServiceKey := os.Getenv("SUPABASE_SERVICE_KEY")
+    supabaseURL = os.Getenv("SUPABASE_URL")
+    supabaseServiceKey = os.Getenv("SUPABASE_SERVICE_KEY")
     supabaseAnonKey := os.Getenv("SUPABASE_ANON_KEY")
     if supabaseURL == "" || supabaseServiceKey == "" || supabaseAnonKey == "" {
         log.Fatal("SUPABASE_URL, SUPABASE_SERVICE_KEY, and SUPABASE_ANON_KEY environment variables are required")
     }
     log.Printf("SUPABASE_URL: %s", supabaseURL)
 
-    // Database client (uses service key for RLS bypass during setup)
-    var errClient error
-    supaClient, errClient = supabaseClient.NewClient(supabaseURL, supabaseServiceKey, nil)
-    if errClient != nil {
-        log.Fatalf("Error initializing Supabase client: %v", errClient)
+    // PostgREST client (for database operations)
+    postgrestClient = postgrest.NewClient(supabaseURL+"/rest/v1", "", map[string]string{
+        "Authorization": "Bearer " + supabaseServiceKey,
+        "apikey":        supabaseServiceKey,
+    })
+    if postgrestClient == nil {
+        log.Fatal("Failed to initialize PostgREST client")
     }
 
     // Storage client
@@ -233,7 +237,7 @@ func main() {
     // API routes
     r.HandleFunc("/signup", signupHandler).Methods("POST")
     r.HandleFunc("/login", loginHandler).Methods("POST")
-    r.HandleFunc("/users", authMiddleware(usersHandler)).Methods("GET") // Added endpoint for chat.html
+    r.HandleFunc("/users", authMiddleware(usersHandler)).Methods("GET")
     r.HandleFunc("/messages", authMiddleware(messagesHandler)).Methods("GET")
     r.HandleFunc("/allowed-chats", authMiddleware(allowedChatsHandler)).Methods("GET")
     r.HandleFunc("/upload", authMiddleware(uploadHandler)).Methods("POST")
@@ -259,7 +263,7 @@ func main() {
     loggedRouter := corsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         log.Printf("Received request: %s %s from %s", r.Method, r.URL.Path, r.Header.Get("Origin"))
         log.Printf("Request headers: %v", r.Header)
-        corsHandler(r).ServeHTTP(w, r) // Fixed: Use corsHandler to serve the request
+        corsHandler(r).ServeHTTP(w, r)
         log.Printf("Response headers: %v", w.Header())
     }))
 
@@ -289,9 +293,14 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
     // Check if username exists
     var existingUsers []map[string]interface{}
-    _, _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", user.Username).ExecuteTo(&existingUsers)
+    data, _, err := postgrestClient.From("users").Select("*", "exact", false).Eq("username", user.Username).Execute()
     if err != nil {
         log.Printf("Error checking user in Supabase: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    if err := json.Unmarshal(data, &existingUsers); err != nil {
+        log.Printf("Error unmarshaling users: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
@@ -337,10 +346,15 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         "email":    user.Email,
     }
     var result []map[string]interface{}
-    _, _, err = supaClient.From("users").Insert(newUser, false, "", "representation", "exact").ExecuteTo(&result)
+    data, _, err = postgrestClient.From("users").Insert(newUser, false, "", "representation", "exact").Execute()
     if err != nil {
         log.Printf("Error registering user %s in Supabase: %v", user.Username, err)
         http.Error(w, "Failed to register user", http.StatusInternalServerError)
+        return
+    }
+    if err := json.Unmarshal(data, &result); err != nil {
+        log.Printf("Error unmarshaling insert result: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
@@ -373,9 +387,14 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
     // Fetch user from users table to get email
     var users []map[string]interface{}
-    _, _, err := supaClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).ExecuteTo(&users)
+    data, _, err := postgrestClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).Execute()
     if err != nil {
         log.Printf("Error fetching user %s from Supabase: %v", creds.Username, err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    if err := json.Unmarshal(data, &users); err != nil {
+        log.Printf("Error unmarshaling users: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
@@ -459,12 +478,17 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
     }
 }
 
-// Users handler (added for chat.html to fetch users)
+// Users handler
 func usersHandler(w http.ResponseWriter, r *http.Request) {
     var users []map[string]interface{}
-    _, _, err := supaClient.From("users").Select("user_id, username", "exact", false).ExecuteTo(&users)
+    data, _, err := postgrestClient.From("users").Select("user_id, username", "exact", false).Execute()
     if err != nil {
         log.Printf("Error fetching users: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    if err := json.Unmarshal(data, &users); err != nil {
+        log.Printf("Error unmarshaling users: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
@@ -484,9 +508,14 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 
     // Fetch messages for the chat
     var messages []Message
-    _, _, err := supaClient.From("messages").Select("*", "exact", false).Eq("chat_id", chatID).ExecuteTo(&messages)
+    data, _, err := postgrestClient.From("messages").Select("*", "exact", false).Eq("chat_id", chatID).Execute()
     if err != nil {
         log.Printf("Error fetching messages for chat %s: %v", chatID, err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    if err := json.Unmarshal(data, &messages); err != nil {
+        log.Printf("Error unmarshaling messages: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
@@ -500,11 +529,16 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
 
     // Fetch chats where user is participant1 or participant2
     var chats []Chat
-    query := supaClient.From("chats").Select("*", "exact", false)
+    query := postgrestClient.From("chats").Select("*", "exact", false)
     query = query.Filter("participant1", "eq", userID).Filter("participant2", "eq", userID, "or")
-    _, _, err := query.ExecuteTo(&chats)
+    data, _, err := query.Execute()
     if err != nil {
         log.Printf("Error fetching allowed chats for user %s: %v", userID, err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    if err := json.Unmarshal(data, &chats); err != nil {
+        log.Printf("Error unmarshaling chats: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
@@ -539,7 +573,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Upload to Supabase storage using storage-go
+    // Upload to Supabase storage
     fileName := fmt.Sprintf("%s/%s", userID, handler.Filename)
     _, err = storageClient.UploadFile("chat-files", fileName, bytes.NewReader(fileBytes))
     if err != nil {
@@ -710,9 +744,13 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 "status":   msg.Status,
             }
             var result []map[string]interface{}
-            _, _, err = supaClient.From("messages").Insert(messageData, false, "", "representation", "exact").ExecuteTo(&result)
+            data, _, err := postgrestClient.From("messages").Insert(messageData, false, "", "representation", "exact").Execute()
             if err != nil {
                 log.Printf("Error saving message to Supabase: %v", err)
+                continue
+            }
+            if err := json.Unmarshal(data, &result); err != nil {
+                log.Printf("Error unmarshaling insert result: %v", err)
                 continue
             }
 
@@ -725,7 +763,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 } else {
                     msg.Status = "delivered"
                     // Update message status in database
-                    _, _, err = supaClient.From("messages").Update(map[string]interface{}{"status": "delivered"}, "", "exact").Eq("id", result[0]["id"].(string)).Execute()
+                    _, _, err = postgrestClient.From("messages").Update(map[string]interface{}{"status": "delivered"}, "", "exact").Eq("id", result[0]["id"].(string)).Execute()
                     if err != nil {
                         log.Printf("Error updating message status: %v", err)
                     }
@@ -772,13 +810,13 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                     "start_time": time.Now(),
                     "status":     "initiated",
                 }
-                _, _, err = supaClient.From("calls").Insert(callData, false, "", "representation", "exact").Execute()
+                _, _, err = postgrestClient.From("calls").Insert(callData, false, "", "representation", "exact").Execute()
                 if err != nil {
                     log.Printf("Error logging call to Supabase: %v", err)
                 }
             } else if msg.Signal.Type == "call-accept" || msg.Signal.Type == "call-reject" {
                 // Update call status
-                _, _, err = supaClient.From("calls").Update(map[string]interface{}{
+                _, _, err = postgrestClient.From("calls").Update(map[string]interface{}{
                     "status":    msg.Signal.CallStatus,
                     "end_time":  time.Now(),
                 }, "", "exact").Eq("caller", msg.Sender).Eq("callee", msg.Receiver).Execute()
