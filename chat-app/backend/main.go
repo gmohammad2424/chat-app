@@ -90,6 +90,12 @@ type User struct {
     Password string `json:"password"`
 }
 
+// UserResponse struct for the /users endpoint response
+type UserResponse struct {
+    UserID   string `json:"user_id"`
+    Username string `json:"username"`
+}
+
 // PushRegistration struct for FCM tokens
 type PushRegistration struct {
     UserID string `json:"user_id"` // UUID
@@ -576,25 +582,55 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 // Users handler
 func usersHandler(w http.ResponseWriter, r *http.Request) {
-    var users []map[string]interface{}
+    // Log the authenticated user making the request
+    userID := r.Context().Value("user_id").(string)
+    username := r.Context().Value("username").(string)
+    log.Printf("Fetching users for authenticated user: %s (user_id: %s)", username, userID)
+
+    // Fetch users from Supabase
+    var rawUsers []map[string]interface{}
     data, _, err := postgrestClient.From("users").Select("user_id, username", "exact", false).Execute()
     if err != nil {
-        log.Printf("Error fetching users: %v", err)
+        log.Printf("Error fetching users from Supabase: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
-    if err := json.Unmarshal(data, &users); err != nil {
+
+    // Log the raw response from Supabase
+    log.Printf("Raw response from Supabase: %s", string(data))
+
+    // Unmarshal the raw data into a slice of maps
+    if err := json.Unmarshal(data, &rawUsers); err != nil {
         log.Printf("Error unmarshaling users: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
+    // Log the number of users fetched
+    log.Printf("Fetched %d users from Supabase", len(rawUsers))
+
+    // Convert to structured response
+    users := make([]UserResponse, 0, len(rawUsers))
+    for _, rawUser := range rawUsers {
+        user := UserResponse{
+            UserID:   rawUser["user_id"].(string),
+            Username: rawUser["username"].(string),
+        }
+        users = append(users, user)
+    }
+
+    // Log the final response being sent
+    responseBytes, _ := json.Marshal(users)
+    log.Printf("Sending response: %s", string(responseBytes))
+
+    // Send the response
+    w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(users)
 }
 
 // Messages handler
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
-    //userID := r.Context().Value("user_id").(string)
+    // userID := r.Context().Value("user_id").(string) // Commented out to fix build error
     chatID := r.URL.Query().Get("chat_id")
     if chatID == "" {
         log.Println("chat_id parameter missing in /messages request")
