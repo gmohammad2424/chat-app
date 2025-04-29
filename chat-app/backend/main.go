@@ -158,8 +158,7 @@ func main() {
     // Load environment variables
     err := godotenv.Load()
     if err != nil {
-        log.Println("No . MAINTAIN YOUR CODE STRUCTURE BUT UPDATE THE URL CLEANING LOGIC AND INITIALIZATION
-env file found, relying on environment variables")
+        log.Println("No . MAINTAIN YOUR CODE STRUCTURE BUT UPDATE THE URL CLEANING LOGIC AND INITIALIZATION env file found, relying on environment variables")
     }
 
     // Get JWT secret
