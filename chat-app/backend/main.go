@@ -158,7 +158,8 @@ func main() {
     // Load environment variables
     err := godotenv.Load()
     if err != nil {
-        log.Println("No .env file found, relying on environment variables")
+        log.Println("No . MAINTAIN YOUR CODE STRUCTURE BUT UPDATE THE URL CLEANING LOGIC AND INITIALIZATION
+env file found, relying on environment variables")
     }
 
     // Get JWT secret
@@ -190,14 +191,16 @@ func main() {
 
     // Clean and validate Supabase URL
     supabaseURL = strings.TrimSpace(supabaseURL)
+    supabaseURL = strings.TrimPrefix(supabaseURL, "https://https//") // Remove duplicate https
+    supabaseURL = strings.TrimPrefix(supabaseURL, "https//")
     supabaseURL = strings.TrimSuffix(supabaseURL, "/")
     if !strings.HasPrefix(supabaseURL, "https://") {
         supabaseURL = "https://" + supabaseURL
     }
     // Remove any duplicate .supabase.co
     if strings.Count(supabaseURL, ".supabase.co") > 1 {
-        parts := strings.Split(supabaseURL, ".supabase.co")
-        supabaseURL = parts[0] + ".supabase.co"
+        parts := strings.SplitAfterN(supabaseURL, ".supabase.co", 2)
+        supabaseURL = parts[0]
     }
     if !strings.HasSuffix(supabaseURL, ".supabase.co") || !strings.Contains(supabaseURL, "vridcilbrgyrxxmnjcqq") {
         log.Fatal("SUPABASE_URL must be in the format https://vridcilbrgyrxxmnjcqq.supabase.co")
@@ -221,7 +224,8 @@ func main() {
     storageClient = storage_go.NewClient(storageURL, supabaseServiceKey, nil)
 
     // Auth client (uses anon key for user authentication)
-    log.Printf("Auth URL: %s", supabaseURL)
+    authURL := supabaseURL + "/auth/v1"
+    log.Printf("Auth URL: %s", authURL)
     authClient = gotrue.New(supabaseURL, supabaseAnonKey)
     if authClient == nil {
         log.Fatal("Failed to initialize Supabase auth client")
@@ -518,7 +522,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 
 // Messages handler
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
-    //userID := r.Context().Value("user_id").(string)
+    userID := r.Context().Value("user_id").(string)
     chatID := r.URL.Query().Get("chat_id")
     if chatID == "" {
         log.Println("chat_id parameter missing in /messages request")
