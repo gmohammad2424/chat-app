@@ -300,13 +300,20 @@
 
         // Fetch chat details (participants) using the chat_id
         async function fetchChatDetails(chatId) {
+            console.log(`Fetching chat details for chat_id: ${chatId}`);
+            const token = localStorage.getItem('token');
+            console.log(`Using token: ${token}`);
             const response = await fetch(`https://chat-backend-gxh8.onrender.com/chat/${chatId}`, {
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                headers: { 'Authorization': `Bearer ${token}` }
             });
+            console.log(`Response status: ${response.status} ${response.statusText}`);
             if (!response.ok) {
-                throw new Error(`Failed to fetch chat details: ${response.status} ${response.statusText}`);
+                const errorText = await response.text();
+                throw new Error(`Failed to fetch chat details: ${response.status} ${response.statusText} - ${errorText}`);
             }
-            return await response.json();
+            const data = await response.json();
+            console.log('Chat details:', data);
+            return data;
         }
 
         // Get chat_id and initialize
@@ -316,6 +323,7 @@
             // Get chat_id from URL
             const urlParams = new URLSearchParams(window.location.search);
             let chatIdParam = urlParams.get('chat_id');
+            console.log(`chatIdParam: ${chatIdParam}`);
             if (!chatIdParam) {
                 showError('Error: Chat ID is missing');
                 throw new Error('Chat ID is required');
@@ -328,7 +336,8 @@
                 throw new Error('Chat ID must be a number');
             }
 
-            currentUserId = localStorage.getItem('chat_id')?.split(':')[0];
+            currentUserId = localStorage.getItem('user_id');
+            console.log(`currentUserId: ${currentUserId}`);
             if (!currentUserId) {
                 showError('Error: Please log in to access the chat');
                 throw new Error('User not logged in');
@@ -344,30 +353,38 @@
             }
 
             const { participant1, participant2 } = chatDetails;
+            console.log(`participant1: ${participant1}, participant2: ${participant2}`);
             if (!participant1 || !participant2) {
                 showError('Error: Invalid chat participants');
                 throw new Error('Chat participants not found');
             }
 
             otherParticipantId = participant1 === currentUserId ? participant2 : participant1;
+            console.log(`otherParticipantId: ${otherParticipantId}`);
 
             // Fetch user info
+            console.log('Fetching users...');
             const usersResponse = await fetch('https://chat-backend-gxh8.onrender.com/users', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
+            console.log(`Users response status: ${usersResponse.status}`);
             if (!usersResponse.ok) throw new Error('Failed to fetch users');
             const users = await usersResponse.json();
+            console.log('Users:', users);
             const otherUser = users.find(user => user.user_id === otherParticipantId);
             document.getElementById('chat-participant').innerText = otherUser
                 ? `Chatting with: ${otherUser.username}`
                 : `Chatting with: Unknown User (ID: ${otherParticipantId})`;
 
             // Fetch initial messages and decrypt them
+            console.log(`Fetching messages for chat_id: ${chatId}`);
             const messagesResponse = await fetch(`https://chat-backend-gxh8.onrender.com/messages?chat_id=${chatId}`, {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
+            console.log(`Messages response status: ${messagesResponse.status}`);
             if (!messagesResponse.ok) throw new Error('Failed to fetch messages');
             const messages = await messagesResponse.json();
+            console.log('Messages:', messages);
             for (let msg of messages) {
                 if (msg.type === 'text' && msg.content) {
                     msg.content = await decryptMessage(msg.content);
@@ -426,6 +443,7 @@
 
         // Initialize WebSocket connection
         function initializeWebSocket() {
+            console.log('Initializing WebSocket...');
             ws = new WebSocket(`wss://chat-backend-gxh8.onrender.com/ws?token=${localStorage.getItem('token')}`);
             ws.onopen = () => console.log('WebSocket connected');
             ws.onmessage = async (event) => {
