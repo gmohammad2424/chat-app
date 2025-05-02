@@ -310,7 +310,9 @@
         }
 
         function initializeWebSocket() {
-            const wsUrl = 'ws://localhost:8080'; // برای تست محلی
+            // آدرس WebSocket قابل تغییر
+            const wsUrl = 'wss://chat-backend-gxh8.onrender.com/ws'; // سرور رندر (پیش‌فرض)
+            // برای تست محلی، این را به 'ws://localhost:8080' تغییر دهید
             try {
                 ws = new WebSocket(wsUrl);
                 ws.onopen = () => {
