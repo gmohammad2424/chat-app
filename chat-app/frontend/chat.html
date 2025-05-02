@@ -24,12 +24,36 @@
             display: flex;
             flex-direction: column;
             height: 80vh;
+            box-shadow: -5px 5px 10px rgba(0, 0, 0, 0.3);
+        }
+        .header {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 20px;
         }
         h2 {
             font-size: 2rem;
             margin-bottom: 20px;
             color: #333;
             font-weight: bold;
+        }
+        .call-buttons button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1.5rem;
+            margin-left: 10px;
+            color: #333;
+            transition: color 0.3s;
+        }
+        .call-buttons button:hover {
+            color: #666;
+        }
+        .call-buttons .video-call-btn::before {
+            content: "📹";
+        }
+        .call-buttons .audio-call-btn::before {
+            content: "🎙️";
         }
         .chat-area {
             flex: 1;
@@ -154,6 +178,12 @@
 </head>
 <body>
     <div class="container">
+        <div class="header">
+            <div class="call-buttons">
+                <button class="video-call-btn" id="video-call-button"></button>
+                <button class="audio-call-btn" id="audio-call-button"></button>
+            </div>
+        </div>
         <h2>Chat</h2>
         <div class="chat-area" id="chat-area"></div>
         <div class="input-group">
@@ -162,8 +192,6 @@
                 <label id="file-input-label" for="file-input">📎</label>
                 <input type="file" id="file-input" />
                 <button id="send-button">Send</button>
-                <button id="video-call-button">Video Call</button>
-                <button id="audio-call-button">Audio Call</button>
             </div>
         </div>
         <div id="call-status"></div>
@@ -232,7 +260,7 @@
         }
 
         function initializeWebSocket() {
-            ws = new WebSocket('wss://chat-backend-gxh8.onrender.com/ws');
+            ws = new WebSocket('ws://localhost:8080'); // تغییر موقت به آدرس محلی برای تست
             ws.onopen = () => {
                 console.log('WebSocket connected');
             };
