@@ -321,10 +321,17 @@
 
         function initializeWebSocket(wsUrlOverride = null) {
             const wsUrl = wsUrlOverride || 'wss://chat-backend-gxh8.onrender.com/ws'; // سرور رندر (پیش‌فرض)
+            const token = localStorage.getItem('access_token'); // فرض می‌کنیم توکن در localStorage با این کلید ذخیره شده
+            if (!token) {
+                showError('No authentication token found. Please login again.', false);
+                return;
+            }
+
+            const urlWithToken = `${wsUrl}?token=${encodeURIComponent(token)}`; // افزودن توکن به کوئری
             try {
-                ws = new WebSocket(wsUrl);
+                ws = new WebSocket(urlWithToken);
                 ws.onopen = () => {
-                    console.log('WebSocket connected to', wsUrl);
+                    console.log('WebSocket connected to', urlWithToken);
                 };
                 ws.onmessage = (event) => {
                     const msg = JSON.parse(event.data);
