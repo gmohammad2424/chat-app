@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat</title>
+    <title>Chats</title>
     <style>
         body {
             background-color: #1c2526;
@@ -16,7 +16,6 @@
         }
         .container {
             background-color: #d3d3d3;
-            padding: 40px;
             border-radius: 10px;
             width: 100%;
             max-width: 400px;
@@ -27,14 +26,21 @@
             box-shadow: -5px 5px 10px rgba(0, 0, 0, 0.3);
         }
         .header {
+            background-color: #333;
+            color: white;
+            padding: 15px;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
             display: flex;
-            justify-content: flex-end;
-            margin-bottom: 20px;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
-        h2 {
-            font-size: 2rem;
-            margin-bottom: 20px;
-            color: #333;
+        .header h2 {
+            font-size: 1.5rem;
+            margin: 0;
             font-weight: bold;
         }
         .call-buttons button {
@@ -43,11 +49,11 @@
             cursor: pointer;
             font-size: 1.5rem;
             margin-left: 10px;
-            color: #333;
+            color: white;
             transition: color 0.3s;
         }
         .call-buttons button:hover {
-            color: #666;
+            color: #ccc;
         }
         .call-buttons .video-call-btn::before {
             content: "📹";
@@ -58,8 +64,10 @@
         .chat-area {
             flex: 1;
             overflow-y: auto;
-            margin-bottom: 20px;
-            background-color: #d3d3d3;
+            padding: 20px;
+            background-color: #e5e5e5;
+            border-top: 1px solid #ccc;
+            border-bottom: 1px solid #ccc;
         }
         .message {
             margin-bottom: 15px;
@@ -75,10 +83,18 @@
         .message-content {
             max-width: 70%;
             padding: 10px;
-            border-radius: 5px;
-            background-color: #fff;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
             color: #333;
+            font-size: 1rem;
+            line-height: 1.4;
+        }
+        .message.sent .message-content {
+            background-color: #007bff;
+            color: white;
+        }
+        .message.received .message-content {
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
         .message img, .message a {
             max-width: 200px;
@@ -87,14 +103,20 @@
         }
         .input-group {
             display: flex;
-            flex-direction: column;
+            align-items: center;
+            padding: 15px;
+            background-color: #d3d3d3;
+            border-bottom-left-radius: 10px;
+            border-bottom-right-radius: 10px;
+            position: sticky;
+            bottom: 0;
             gap: 10px;
         }
         .input-group input[type="text"] {
-            width: 100%;
+            flex: 1;
             padding: 10px;
             border: none;
-            border-radius: 5px;
+            border-radius: 20px;
             background-color: #fff;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
             font-size: 1rem;
@@ -103,18 +125,13 @@
         .input-group input[type="text"]::placeholder {
             color: #666;
         }
-        .input-group .button-group {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-        }
         .input-group button, .input-group label {
-            padding: 10px 20px;
+            padding: 10px;
             background-color: #333;
             color: white;
             font-size: 1rem;
             border: none;
-            border-radius: 5px;
+            border-radius: 50%;
             cursor: pointer;
             box-shadow: 0 0 10px rgba(0, 255, 255, 0.5), 0 0 10px rgba(255, 0, 255, 0.5);
             transition: background-color 0.3s;
@@ -173,26 +190,27 @@
             color: #ff4444;
             margin-top: 10px;
             display: none;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
+            <h2>Chats</h2>
             <div class="call-buttons">
                 <button class="video-call-btn" id="video-call-button"></button>
                 <button class="audio-call-btn" id="audio-call-button"></button>
             </div>
         </div>
-        <h2>Chat</h2>
         <div class="chat-area" id="chat-area"></div>
         <div class="input-group">
             <input type="text" id="message-input" placeholder="Type a message..." />
-            <div class="button-group">
-                <label id="file-input-label" for="file-input">📎</label>
-                <input type="file" id="file-input" />
-                <button id="send-button">Send</button>
-            </div>
+            <label id="file-input-label" for="file-input">📎</label>
+            <input type="file" id="file-input" />
+            <button id="send-button">➤</button>
         </div>
         <div id="call-status"></div>
         <div id="error"></div>
@@ -222,6 +240,14 @@
         let ws = null;
         let peerConnection = null;
         let localStream = null;
+
+        // بارگذاری پیام‌های ذخیره‌شده از localStorage
+        function loadMessages() {
+            const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
+            savedMessages.forEach(msg => {
+                displayMessage(msg.content, msg.isSent, msg.type, msg.fileUrl);
+            });
+        }
 
         function showError(message) {
             const errorDiv = document.getElementById('error');
@@ -257,34 +283,52 @@
             messageDiv.appendChild(contentDiv);
             chatArea.appendChild(messageDiv);
             chatArea.scrollTop = chatArea.scrollHeight;
+
+            // ذخیره پیام در localStorage
+            const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
+            savedMessages.push({ content, isSent, type, fileUrl, timestamp: new Date().toISOString() });
+            localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
         }
 
         function initializeWebSocket() {
-            ws = new WebSocket('ws://localhost:8080'); // تغییر موقت به آدرس محلی برای تست
-            ws.onopen = () => {
-                console.log('WebSocket connected');
-            };
-            ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                console.log('WebSocket message received:', msg);
-                if (msg.type === 'text') {
-                    displayMessage(msg.content, false);
-                } else if (msg.type === 'file') {
-                    displayMessage(null, false, 'file', msg.file_url);
-                } else if (msg.type === 'call_signal') {
-                    handleCallSignal(msg);
-                }
-            };
-            ws.onclose = () => console.log('WebSocket disconnected');
-            ws.onerror = (error) => console.error('WebSocket error:', error);
+            const wsUrl = 'ws://localhost:8080'; // برای تست محلی
+            try {
+                ws = new WebSocket(wsUrl);
+                ws.onopen = () => {
+                    console.log('WebSocket connected to', wsUrl);
+                };
+                ws.onmessage = (event) => {
+                    const msg = JSON.parse(event.data);
+                    console.log('WebSocket message received:', msg);
+                    if (msg.type === 'text') {
+                        displayMessage(msg.content, false, 'text');
+                    } else if (msg.type === 'file') {
+                        displayMessage(null, false, 'file', msg.file_url);
+                    } else if (msg.type === 'call_signal') {
+                        handleCallSignal(msg);
+                    }
+                };
+                ws.onclose = () => {
+                    console.log('WebSocket disconnected');
+                    showError('WebSocket connection closed. Please check the server.');
+                };
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    showError('Failed to connect to WebSocket server at ' + wsUrl);
+                };
+            } catch (error) {
+                showError('Error initializing WebSocket: ' + error.message);
+            }
         }
 
         sendButton.addEventListener('click', () => {
             const content = messageInput.value.trim();
             if (!content) return;
-            displayMessage(content);
+            displayMessage(content, true);
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'text', content }));
+                ws.send(JSON.stringify({ type: 'text', content, sender: localStorage.getItem('user_id') }));
+            } else {
+                showError('WebSocket is not connected. Cannot send message.');
             }
             messageInput.value = '';
         });
@@ -298,7 +342,9 @@
                 const fileUrl = reader.result;
                 displayMessage(null, true, 'file', fileUrl);
                 if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'file', file_url: fileUrl }));
+                    ws.send(JSON.stringify({ type: 'file', file_url: fileUrl, sender: localStorage.getItem('user_id') }));
+                } else {
+                    showError('WebSocket is not connected. Cannot send file.');
                 }
             };
             reader.readAsDataURL(file);
@@ -343,6 +389,8 @@
                         type: 'call_signal',
                         signal: { type: 'call-initiate', offer: offer, call_type: callType }
                     }));
+                } else {
+                    showError('WebSocket is not connected. Cannot start call.');
                 }
 
                 videoCallArea.style.display = 'flex';
@@ -449,6 +497,8 @@
         audioCallButton.addEventListener('click', () => startCall('audio'));
         endCallButton.addEventListener('click', endCall);
 
+        // بارگذاری پیام‌ها و راه‌اندازی WebSocket
+        loadMessages();
         initializeWebSocket();
     </script>
 </body>
