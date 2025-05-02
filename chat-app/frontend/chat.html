@@ -200,6 +200,7 @@
             padding: 8px 16px;
             border-radius: 5px;
             box-shadow: none;
+            margin-right: 10px;
         }
         #error button:hover {
             background-color: #0056b3;
@@ -259,7 +260,7 @@
             });
         }
 
-        function showError(message, showRetry = false) {
+        function showError(message, showRetry = false, showLocalSwitch = false) {
             const errorDiv = document.getElementById('error');
             errorDiv.innerHTML = message;
             if (showRetry) {
@@ -270,6 +271,15 @@
                     initializeWebSocket();
                 });
                 errorDiv.appendChild(retryButton);
+            }
+            if (showLocalSwitch) {
+                const localButton = document.createElement('button');
+                localButton.innerText = 'Switch to Local (ws://localhost:8080)';
+                localButton.addEventListener('click', () => {
+                    errorDiv.style.display = 'none';
+                    initializeWebSocket('ws://localhost:8080');
+                });
+                errorDiv.appendChild(localButton);
             }
             errorDiv.style.display = 'block';
             console.error(message);
@@ -309,10 +319,8 @@
             localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
         }
 
-        function initializeWebSocket() {
-            // آدرس WebSocket قابل تغییر
-            const wsUrl = 'wss://chat-backend-gxh8.onrender.com/ws'; // سرور رندر (پیش‌فرض)
-            // برای تست محلی، این را به 'ws://localhost:8080' تغییر دهید
+        function initializeWebSocket(wsUrlOverride = null) {
+            const wsUrl = wsUrlOverride || 'wss://chat-backend-gxh8.onrender.com/ws'; // سرور رندر (پیش‌فرض)
             try {
                 ws = new WebSocket(wsUrl);
                 ws.onopen = () => {
@@ -331,14 +339,14 @@
                 };
                 ws.onclose = () => {
                     console.log('WebSocket disconnected');
-                    showError('WebSocket connection closed. Please check the server.', true);
+                    showError('WebSocket connection closed. Please check the server at ' + wsUrl, true, wsUrl.includes('onrender.com'));
                 };
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
-                    showError('Failed to connect to WebSocket server at ' + wsUrl, true);
+                    showError('Failed to connect to WebSocket server at ' + wsUrl, true, wsUrl.includes('onrender.com'));
                 };
             } catch (error) {
-                showError('Error initializing WebSocket: ' + error.message, true);
+                showError('Error initializing WebSocket: ' + error.message, true, wsUrl.includes('onrender.com'));
             }
         }
 
