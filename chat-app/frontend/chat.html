@@ -3,64 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure Chat</title>
+    <title>Chat</title>
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #1a1a1a;
-            color: #e0e0e0;
-            margin: 0;
-            padding: 0;
+            background-color: #1c2526;
             display: flex;
-            flex-direction: column;
-            height: 100vh;
-            overflow: hidden;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
         }
         .container {
+            background-color: #d3d3d3;
+            padding: 40px;
+            border-radius: 10px;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
             display: flex;
             flex-direction: column;
-            height: 100%;
-            max-width: 1200px;
-            margin: 0 auto;
-            background-color: #252526;
-            border-radius: 10px;
-            overflow: hidden;
+            height: 80vh;
         }
-        .header {
-            background-color: #333;
-            padding: 10px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #444;
-        }
-        .header h2 {
-            margin: 0;
-            font-size: 1.2rem;
-            color: #1e90ff;
-        }
-        .call-buttons button {
-            background-color: #1e90ff;
-            border: none;
-            color: white;
-            padding: 8px 15px;
-            margin-left: 10px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        .call-buttons button:hover {
-            background-color: #147bff;
-        }
-        #call-status {
-            font-size: 0.9rem;
-            color: #ff4444;
+        h2 {
+            font-size: 2rem;
+            margin-bottom: 20px;
+            color: #333;
+            font-weight: bold;
         }
         .chat-area {
             flex: 1;
             overflow-y: auto;
-            padding: 20px;
-            background-color: #1e1e1e;
+            margin-bottom: 20px;
+            background-color: #d3d3d3;
         }
         .message {
             margin-bottom: 15px;
@@ -75,61 +50,53 @@
         }
         .message-content {
             max-width: 70%;
-            padding: 10px 15px;
-            border-radius: 15px;
-            position: relative;
-        }
-        .message.sent .message-content {
-            background-color: #1e90ff;
-            color: white;
-        }
-        .message.received .message-content {
-            background-color: #333;
-            color: #e0e0e0;
-        }
-        .message-meta {
-            font-size: 0.75rem;
-            color: #888;
-            margin-top: 3px;
-        }
-        .message-meta .status {
-            margin-left: 5px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            color: #333;
         }
         .message img, .message a {
             max-width: 200px;
-            border-radius: 10px;
+            border-radius: 5px;
             margin-top: 5px;
         }
-        .input-area {
+        .input-group {
             display: flex;
-            padding: 15px;
-            background-color: #333;
-            border-top: 1px solid #444;
+            flex-direction: column;
+            gap: 10px;
         }
-        #message-input {
-            flex: 1;
+        .input-group input[type="text"] {
+            width: 100%;
             padding: 10px;
             border: none;
-            border-radius: 20px;
-            background-color: #444;
-            color: #e0e0e0;
-            margin-right: 10px;
-            outline: none;
+            border-radius: 5px;
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            font-size: 1rem;
+            color: #333;
         }
-        #message-input:focus {
-            background-color: #555;
+        .input-group input[type="text"]::placeholder {
+            color: #666;
         }
-        #send-button, #file-input-label {
-            background-color: #1e90ff;
-            border: none;
+        .input-group .button-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        .input-group button, .input-group label {
+            padding: 10px 20px;
+            background-color: #333;
             color: white;
-            padding: 10px 15px;
-            border-radius: 20px;
+            font-size: 1rem;
+            border: none;
+            border-radius: 5px;
             cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.5), 0 0 10px rgba(255, 0, 255, 0.5);
             transition: background-color 0.3s;
         }
-        #send-button:hover, #file-input-label:hover {
-            background-color: #147bff;
+        .input-group button:hover, .input-group label:hover {
+            background-color: #444;
         }
         #file-input {
             display: none;
@@ -156,7 +123,7 @@
         #local-video, #remote-video {
             width: 320px;
             height: 240px;
-            border-radius: 10px;
+            border-radius: 5px;
             background-color: #000;
         }
         .call-controls button {
@@ -167,40 +134,40 @@
             margin: 0 5px;
             border-radius: 5px;
             cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.5), 0 0 10px rgba(255, 0, 255, 0.5);
             transition: background-color 0.3s;
         }
         .call-controls button:hover {
             background-color: #cc3333;
         }
+        #call-status {
+            color: #ff4444;
+            margin-top: 10px;
+            display: none;
+        }
         #error {
             color: #ff4444;
-            background-color: #333;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 10px 0;
+            margin-top: 10px;
             display: none;
-            text-align: center;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h2 id="chat-participant">Loading participant...</h2>
-            <div class="call-buttons">
-                <span id="call-status"></span>
+        <h2>Chat</h2>
+        <div class="chat-area" id="chat-area"></div>
+        <div class="input-group">
+            <input type="text" id="message-input" placeholder="Type a message..." />
+            <div class="button-group">
+                <label id="file-input-label" for="file-input">📎</label>
+                <input type="file" id="file-input" />
+                <button id="send-button">Send</button>
                 <button id="video-call-button">Video Call</button>
                 <button id="audio-call-button">Audio Call</button>
             </div>
         </div>
+        <div id="call-status"></div>
         <div id="error"></div>
-        <div class="chat-area" id="chat-area"></div>
-        <div class="input-area">
-            <input type="text" id="message-input" placeholder="Type a message..." />
-            <label id="file-input-label" for="file-input">📎</label>
-            <input type="file" id="file-input" />
-            <button id="send-button">Send</button>
-        </div>
     </div>
     <div class="video-call-area" id="video-call-area">
         <div class="video-container">
@@ -213,7 +180,6 @@
     </div>
 
     <script>
-        // Global variables
         const chatArea = document.getElementById('chat-area');
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
@@ -228,13 +194,7 @@
         let ws = null;
         let peerConnection = null;
         let localStream = null;
-        let chatId = null;
-        let currentUserId = null;
-        let otherParticipantId = null;
-        let messagesMap = new Map();
-        let encryptionKey = null;
 
-        // Function to display errors
         function showError(message) {
             const errorDiv = document.getElementById('error');
             errorDiv.innerText = message;
@@ -242,336 +202,87 @@
             console.error(message);
         }
 
-        // Generate or load encryption key
-        async function generateEncryptionKey() {
-            let key = localStorage.getItem('chat_encryption_key');
-            if (!key) {
-                const rawKey = await crypto.subtle.generateKey(
-                    { name: 'AES-GCM', length: 256 },
-                    true,
-                    ['encrypt', 'decrypt']
-                );
-                const exportedKey = await crypto.subtle.exportKey('raw', rawKey);
-                key = btoa(String.fromCharCode(...new Uint8Array(exportedKey)));
-                localStorage.setItem('chat_encryption_key', key);
-            }
-            const rawKey = Uint8Array.from(atob(key), c => c.charCodeAt(0));
-            encryptionKey = await crypto.subtle.importKey(
-                'raw',
-                rawKey,
-                { name: 'AES-GCM' },
-                false,
-                ['encrypt', 'decrypt']
-            );
-        }
-
-        // Encrypt a message
-        async function encryptMessage(plaintext) {
-            const iv = crypto.getRandomValues(new Uint8Array(12));
-            const encodedText = new TextEncoder().encode(plaintext);
-            const ciphertext = await crypto.subtle.encrypt(
-                { name: 'AES-GCM', iv: iv },
-                encryptionKey,
-                encodedText
-            );
-            const combined = new Uint8Array(iv.length + ciphertext.byteLength);
-            combined.set(iv, 0);
-            combined.set(new Uint8Array(ciphertext), iv.length);
-            return btoa(String.fromCharCode(...combined));
-        }
-
-        // Decrypt a message
-        async function decryptMessage(ciphertext) {
-            try {
-                const combined = Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0));
-                const iv = combined.slice(0, 12);
-                const data = combined.slice(12);
-                const decrypted = await crypto.subtle.decrypt(
-                    { name: 'AES-GCM', iv: iv },
-                    encryptionKey,
-                    data
-                );
-                return new TextDecoder().decode(decrypted);
-            } catch (error) {
-                console.error('Decryption failed:', error);
-                return '[Encrypted Message - Decryption Failed]';
-            }
-        }
-
-        // Fetch chat details (participants) using the chat_id
-        async function fetchChatDetails(chatId) {
-            console.log(`Fetching chat details for chat_id: ${chatId}`);
-            const token = localStorage.getItem('token');
-            console.log(`Using token: ${token}`);
-            const response = await fetch(`https://chat-backend-gxh8.onrender.com/chat/${chatId}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            console.log(`Response status: ${response.status} ${response.statusText}`);
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Failed to fetch chat details: ${response.status} ${response.statusText} - ${errorText}`);
-            }
-            const data = await response.json();
-            console.log('Chat details:', data);
-            return data;
-        }
-
-        // Get chat_id and initialize
-        async function initializeChat() {
-            await generateEncryptionKey();
-
-            // Get chat_id from URL
-            const urlParams = new URLSearchParams(window.location.search);
-            let chatIdParam = urlParams.get('chat_id');
-            console.log(`chatIdParam: ${chatIdParam}`);
-            if (!chatIdParam) {
-                showError('Error: Chat ID is missing');
-                throw new Error('Chat ID is required');
-            }
-
-            // Parse chat_id and validate
-            chatId = parseInt(chatIdParam, 10);
-            if (isNaN(chatId)) {
-                showError('Error: Chat ID must be a valid number');
-                throw new Error('Chat ID must be a number');
-            }
-
-            currentUserId = localStorage.getItem('user_id');
-            console.log(`currentUserId: ${currentUserId}`);
-            if (!currentUserId) {
-                showError('Error: Please log in to access the chat');
-                throw new Error('User not logged in');
-            }
-
-            // Fetch chat details to get participants
-            let chatDetails;
-            try {
-                chatDetails = await fetchChatDetails(chatId);
-            } catch (error) {
-                showError(`Error: Chat not found (ID: ${chatId}). Please check if the chat exists.`);
-                throw new Error(`Failed to fetch chat details: ${error.message}`);
-            }
-
-            const { participant1, participant2 } = chatDetails;
-            console.log(`participant1: ${participant1}, participant2: ${participant2}`);
-            if (!participant1 || !participant2) {
-                showError('Error: Invalid chat participants');
-                throw new Error('Chat participants not found');
-            }
-
-            otherParticipantId = participant1 === currentUserId ? participant2 : participant1;
-            console.log(`otherParticipantId: ${otherParticipantId}`);
-
-            // Fetch user info
-            console.log('Fetching users...');
-            const usersResponse = await fetch('https://chat-backend-gxh8.onrender.com/users', {
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-            });
-            console.log(`Users response status: ${usersResponse.status}`);
-            if (!usersResponse.ok) throw new Error('Failed to fetch users');
-            const users = await usersResponse.json();
-            console.log('Users:', users);
-            const otherUser = users.find(user => user.user_id === otherParticipantId);
-            document.getElementById('chat-participant').innerText = otherUser
-                ? `Chatting with: ${otherUser.username}`
-                : `Chatting with: Unknown User (ID: ${otherParticipantId})`;
-
-            // Fetch initial messages and decrypt them
-            console.log(`Fetching messages for chat_id: ${chatId}`);
-            const messagesResponse = await fetch(`https://chat-backend-gxh8.onrender.com/messages?chat_id=${chatId}`, {
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-            });
-            console.log(`Messages response status: ${messagesResponse.status}`);
-            if (!messagesResponse.ok) throw new Error('Failed to fetch messages');
-            const messages = await messagesResponse.json();
-            console.log('Messages:', messages);
-            for (let msg of messages) {
-                if (msg.type === 'text' && msg.content) {
-                    msg.content = await decryptMessage(msg.content);
-                }
-                displayMessage(msg);
-            }
-
-            // Initialize WebSocket
-            initializeWebSocket();
-        }
-
-        // Display a message in the chat area
-        function displayMessage(msg) {
+        function displayMessage(content, isSent = true, type = 'text', fileUrl = null) {
             const messageDiv = document.createElement('div');
             messageDiv.classList.add('message');
-            messageDiv.classList.add(msg.sender === currentUserId ? 'sent' : 'received');
+            messageDiv.classList.add(isSent ? 'sent' : 'received');
 
             const contentDiv = document.createElement('div');
             contentDiv.classList.add('message-content');
 
-            if (msg.type === 'text') {
-                contentDiv.innerText = msg.content;
-            } else if (msg.type === 'file') {
-                if (msg.file_type.startsWith('image/')) {
+            if (type === 'text') {
+                contentDiv.innerText = content;
+            } else if (type === 'file') {
+                if (fileUrl && fileUrl.startsWith('data:image/')) {
                     const img = document.createElement('img');
-                    img.src = `/file/${msg.file_url}`;
+                    img.src = fileUrl;
                     contentDiv.appendChild(img);
                 } else {
                     const link = document.createElement('a');
-                    link.href = `/file/${msg.file_url}`;
+                    link.href = fileUrl;
                     link.innerText = 'Download File';
                     link.download = '';
                     contentDiv.appendChild(link);
                 }
             }
 
-            const metaDiv = document.createElement('div');
-            metaDiv.classList.add('message-meta');
-            metaDiv.innerText = new Date(msg.timestamp).toLocaleTimeString();
-            if (msg.sender === currentUserId) {
-                const statusSpan = document.createElement('span');
-                statusSpan.classList.add('status');
-                statusSpan.innerText = msg.status || 'sent';
-                metaDiv.appendChild(statusSpan);
-            }
-
             messageDiv.appendChild(contentDiv);
-            messageDiv.appendChild(metaDiv);
             chatArea.appendChild(messageDiv);
             chatArea.scrollTop = chatArea.scrollHeight;
-
-            if (msg.sender === currentUserId) {
-                messagesMap.set(msg.id || `${msg.sender}-${msg.timestamp}`, statusSpan);
-            }
         }
 
-        // Initialize WebSocket connection
         function initializeWebSocket() {
-            console.log('Initializing WebSocket...');
-            ws = new WebSocket(`wss://chat-backend-gxh8.onrender.com/ws?token=${localStorage.getItem('token')}`);
-            ws.onopen = () => console.log('WebSocket connected');
-            ws.onmessage = async (event) => {
+            ws = new WebSocket('wss://chat-backend-gxh8.onrender.com/ws');
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+            };
+            ws.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
-                if (parseInt(msg.chat_id) === chatId) {
-                    if (msg.type === 'text' && msg.content) {
-                        msg.content = await decryptMessage(msg.content);
-                    }
-                    displayMessage(msg);
-                    if (msg.sender !== currentUserId && msg.status === 'delivered') {
-                        const seenMsg = { ...msg, status: 'seen' };
-                        ws.send(JSON.stringify(seenMsg));
-                    }
+                console.log('WebSocket message received:', msg);
+                if (msg.type === 'text') {
+                    displayMessage(msg.content, false);
+                } else if (msg.type === 'file') {
+                    displayMessage(null, false, 'file', msg.file_url);
                 } else if (msg.type === 'call_signal') {
                     handleCallSignal(msg);
-                }
-                if (msg.status && messagesMap.has(msg.id || `${msg.sender}-${msg.timestamp}`)) {
-                    messagesMap.get(msg.id || `${msg.sender}-${msg.timestamp}`).innerText = msg.status;
                 }
             };
             ws.onclose = () => console.log('WebSocket disconnected');
             ws.onerror = (error) => console.error('WebSocket error:', error);
         }
 
-        // Send a text message
-        sendButton.addEventListener('click', async () => {
+        sendButton.addEventListener('click', () => {
             const content = messageInput.value.trim();
             if (!content) return;
-            const encryptedContent = await encryptMessage(content);
-            const msg = {
-                type: 'text',
-                sender: currentUserId,
-                receiver: otherParticipantId,
-                content: encryptedContent,
-                chat_id: chatId,
-                timestamp: new Date().toISOString(),
-                status: 'sent'
-            };
-            ws.send(JSON.stringify(msg));
-            msg.content = content;
-            displayMessage(msg);
+            displayMessage(content);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'text', content }));
+            }
             messageInput.value = '';
         });
 
-        // Send a file
-        fileInput.addEventListener('change', async () => {
+        fileInput.addEventListener('change', () => {
             const file = fileInput.files[0];
             if (!file) return;
 
-            const formData = new FormData();
-            formData.append('file', file);
-            const response = await fetch('https://chat-backend-gxh8.onrender.com/upload', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-                body: formData
-            });
-            if (!response.ok) {
-                showError('Failed to upload file');
-                return;
-            }
-            const { file_url, file_type } = await response.json();
-            const msg = {
-                type: 'file',
-                sender: currentUserId,
-                receiver: otherParticipantId,
-                file_url: file_url,
-                file_type: file_type,
-                chat_id: chatId,
-                timestamp: new Date().toISOString(),
-                status: 'sent'
+            const reader = new FileReader();
+            reader.onload = () => {
+                const fileUrl = reader.result;
+                displayMessage(null, true, 'file', fileUrl);
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'file', file_url: fileUrl }));
+                }
             };
-            ws.send(JSON.stringify(msg));
+            reader.readAsDataURL(file);
             fileInput.value = '';
         });
 
-        // WebRTC setup for video/audio calls
         const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
         async function startCall(callType) {
-            peerConnection = new RTCPeerConnection(servers);
-            const constraints = callType === 'video' ? { video: true, audio: true } : { audio: true };
-            localStream = await navigator.mediaDevices.getUserMedia(constraints);
-            localVideo.srcObject = localStream;
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-            peerConnection.ontrack = (event) => {
-                remoteVideo.srcObject = event.streams[0];
-            };
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    ws.send(JSON.stringify({
-                        type: 'call_signal',
-                        signal: { type: 'ice-candidate', candidate: event.candidate },
-                        sender: currentUserId,
-                        receiver: otherParticipantId
-                    }));
-                }
-            };
-            peerConnection.onconnectionstatechange = () => {
-                if (peerConnection.connectionState === 'connected') {
-                    callStatus.innerText = 'Connected';
-                    callStatus.style.color = '#44ff44';
-                } else if (peerConnection.connectionState === 'disconnected') {
-                    endCall();
-                }
-            };
-
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            ws.send(JSON.stringify({
-                type: 'call_signal',
-                signal: { type: 'call-initiate', offer: offer, call_type: callType },
-                sender: currentUserId,
-                receiver: otherParticipantId
-            }));
-
-            videoCallArea.style.display = 'flex';
-            callStatus.innerText = 'Calling...';
-            if (callType === 'audio') {
-                localVideo.style.display = 'none';
-                remoteVideo.style.display = 'none';
-            }
-        }
-
-        async function handleCallSignal(msg) {
-            if (!peerConnection) {
+            try {
                 peerConnection = new RTCPeerConnection(servers);
-                const constraints = msg.signal.call_type === 'video' ? { video: true, audio: true } : { audio: true };
+                const constraints = callType === 'video' ? { video: true, audio: true } : { audio: true };
                 localStream = await navigator.mediaDevices.getUserMedia(constraints);
                 localVideo.srcObject = localStream;
                 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
@@ -580,12 +291,10 @@
                     remoteVideo.srcObject = event.streams[0];
                 };
                 peerConnection.onicecandidate = (event) => {
-                    if (event.candidate) {
+                    if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({
                             type: 'call_signal',
-                            signal: { type: 'ice-candidate', candidate: event.candidate },
-                            sender: currentUserId,
-                            receiver: otherParticipantId
+                            signal: { type: 'ice-candidate', candidate: event.candidate }
                         }));
                     }
                 };
@@ -593,44 +302,100 @@
                     if (peerConnection.connectionState === 'connected') {
                         callStatus.innerText = 'Connected';
                         callStatus.style.color = '#44ff44';
+                        callStatus.style.display = 'block';
                     } else if (peerConnection.connectionState === 'disconnected') {
                         endCall();
                     }
                 };
-            }
 
-            if (msg.signal.type === 'call-initiate') {
-                if (confirm(`Incoming ${msg.signal.call_type} call from user ${msg.sender}. Accept?`)) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.signal.offer));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         type: 'call_signal',
-                        signal: { type: 'call-accept', answer: answer, call_status: 'accepted' },
-                        sender: currentUserId,
-                        receiver: otherParticipantId
-                    }));
-                    videoCallArea.style.display = 'flex';
-                    callStatus.innerText = 'Connecting...';
-                    if (msg.signal.call_type === 'audio') {
-                        localVideo.style.display = 'none';
-                        remoteVideo.style.display = 'none';
-                    }
-                } else {
-                    ws.send(JSON.stringify({
-                        type: 'call_signal',
-                        signal: { type: 'call-reject', call_status: 'rejected' },
-                        sender: currentUserId,
-                        receiver: otherParticipantId
+                        signal: { type: 'call-initiate', offer: offer, call_type: callType }
                     }));
                 }
-            } else if (msg.signal.type === 'call-accept') {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.signal.answer));
-            } else if (msg.signal.type === 'ice-candidate') {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(msg.signal.candidate));
-            } else if (msg.signal.type === 'call-reject') {
-                callStatus.innerText = 'Call rejected';
-                endCall();
+
+                videoCallArea.style.display = 'flex';
+                callStatus.innerText = 'Calling...';
+                callStatus.style.display = 'block';
+                if (callType === 'audio') {
+                    localVideo.style.display = 'none';
+                    remoteVideo.style.display = 'none';
+                }
+            } catch (error) {
+                showError('Failed to start call: ' + error.message);
+            }
+        }
+
+        async function handleCallSignal(msg) {
+            try {
+                if (!peerConnection) {
+                    peerConnection = new RTCPeerConnection(servers);
+                    const constraints = msg.signal.call_type === 'video' ? { video: true, audio: true } : { audio: true };
+                    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    localVideo.srcObject = localStream;
+                    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                    peerConnection.ontrack = (event) => {
+                        remoteVideo.srcObject = event.streams[0];
+                    };
+                    peerConnection.onicecandidate = (event) => {
+                        if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'call_signal',
+                                signal: { type: 'ice-candidate', candidate: event.candidate }
+                            }));
+                        }
+                    };
+                    peerConnection.onconnectionstatechange = () => {
+                        if (peerConnection.connectionState === 'connected') {
+                            callStatus.innerText = 'Connected';
+                            callStatus.style.color = '#44ff44';
+                            callStatus.style.display = 'block';
+                        } else if (peerConnection.connectionState === 'disconnected') {
+                            endCall();
+                        }
+                    };
+                }
+
+                if (msg.signal.type === 'call-initiate') {
+                    if (confirm(`Incoming ${msg.signal.call_type} call. Accept?`)) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.signal.offer));
+                        const answer = await peerConnection.createAnswer();
+                        await peerConnection.setLocalDescription(answer);
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'call_signal',
+                                signal: { type: 'call-accept', answer: answer, call_status: 'accepted' }
+                            }));
+                        }
+                        videoCallArea.style.display = 'flex';
+                        callStatus.innerText = 'Connecting...';
+                        callStatus.style.display = 'block';
+                        if (msg.signal.call_type === 'audio') {
+                            localVideo.style.display = 'none';
+                            remoteVideo.style.display = 'none';
+                        }
+                    } else {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'call_signal',
+                                signal: { type: 'call-reject', call_status: 'rejected' }
+                            }));
+                        }
+                    }
+                } else if (msg.signal.type === 'call-accept') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.signal.answer));
+                } else if (msg.signal.type === 'ice-candidate') {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(msg.signal.candidate));
+                } else if (msg.signal.type === 'call-reject') {
+                    callStatus.innerText = 'Call rejected';
+                    endCall();
+                }
+            } catch (error) {
+                showError('Failed to handle call signal: ' + error.message);
             }
         }
 
@@ -647,19 +412,16 @@
             remoteVideo.srcObject = null;
             videoCallArea.style.display = 'none';
             callStatus.innerText = '';
+            callStatus.style.display = 'none';
             localVideo.style.display = 'block';
             remoteVideo.style.display = 'block';
         }
 
-        // Event listeners for call buttons
         videoCallButton.addEventListener('click', () => startCall('video'));
         audioCallButton.addEventListener('click', () => startCall('audio'));
         endCallButton.addEventListener('click', endCall);
 
-        // Initialize the chat
-        initializeChat().catch(error => {
-            showError('Failed to initialize chat: ' + error.message);
-        });
+        initializeWebSocket();
     </script>
 </body>
 </html>
