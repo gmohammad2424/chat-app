@@ -103,7 +103,7 @@
                 const data = await response.json();
                 localStorage.setItem('token', data.token);
                 localStorage.setItem('user_id', data.user_id);
-                window.location.href = 'chats.html'; // تغییر به chats.html
+                window.location.href = 'chat.html'; // تغییر به chats.html
             } catch (error) {
                 errorDiv.innerText = error.message;
                 errorDiv.style.display = 'block';
