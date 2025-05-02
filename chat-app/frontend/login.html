@@ -10,37 +10,37 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
             font-family: Arial, sans-serif;
         }
-        .login-container {
+        .container {
             background-color: #d3d3d3;
             padding: 40px;
             border-radius: 10px;
             width: 100%;
             max-width: 400px;
             text-align: center;
+            box-shadow: -5px 5px 10px rgba(0, 0, 0, 0.3);
         }
-        h2 {
+        h1 {
             font-size: 2rem;
             margin-bottom: 20px;
             color: #333;
+            font-weight: bold;
         }
-        .input-group {
-            margin-bottom: 20px;
-        }
-        .input-group input {
+        input[type="text"], input[type="password"] {
             width: 100%;
             padding: 10px;
+            margin: 10px 0;
             border: none;
             border-radius: 5px;
             background-color: #fff;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
             font-size: 1rem;
-            color: #666;
+            color: #333;
         }
-        .input-group input::placeholder {
+        input[type="text"]::placeholder, input[type="password"]::placeholder {
             color: #666;
         }
         button {
@@ -66,14 +66,10 @@
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <h2>Login</h2>
-        <div class="input-group">
-            <input type="text" id="username" placeholder="Username" />
-        </div>
-        <div class="input-group">
-            <input type="password" id="password" placeholder="Password" />
-        </div>
+    <div class="container">
+        <h1>Login</h1>
+        <input type="text" id="username" placeholder="Username" />
+        <input type="password" id="password" placeholder="Password" />
         <button id="login-button">Login</button>
         <div id="error"></div>
     </div>
@@ -83,8 +79,14 @@
         const errorDiv = document.getElementById('error');
 
         loginButton.addEventListener('click', async () => {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+
+            if (!username || !password) {
+                errorDiv.innerText = 'Please fill in all fields';
+                errorDiv.style.display = 'block';
+                return;
+            }
 
             try {
                 const response = await fetch('https://chat-backend-gxh8.onrender.com/login', {
@@ -99,16 +101,9 @@
                 }
 
                 const data = await response.json();
-                const { token, user_id } = data;
-
-                // Store user_id and token correctly
-                localStorage.setItem('token', token);
-                localStorage.setItem('user_id', user_id);
-                // Remove any incorrect chat_id
-                localStorage.removeItem('chat_id');
-
-                // Redirect to chats page
-                window.location.href = 'chats.html';
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('user_id', data.user_id);
+                window.location.href = 'chats.html'; // تغییر به chats.html
             } catch (error) {
                 errorDiv.innerText = error.message;
                 errorDiv.style.display = 'block';
