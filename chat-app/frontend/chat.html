@@ -252,6 +252,9 @@
         let ws = null;
         let peerConnection = null;
         let localStream = null;
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 5;
+        let reconnectDelay = 1000; // Initial delay in ms
 
         // بررسی ورود
         function checkLogin() {
@@ -276,6 +279,8 @@
                 retryButton.innerText = 'Retry Connection';
                 retryButton.addEventListener('click', () => {
                     errorDiv.style.display = 'none';
+                    reconnectAttempts = 0; // Reset attempts on manual retry
+                    reconnectDelay = 1000; // Reset delay
                     initializeWebSocket();
                 });
                 errorDiv.appendChild(retryButton);
@@ -347,6 +352,8 @@
                 ws.onopen = () => {
                     console.log('WebSocket connected to', urlWithToken);
                     showError('WebSocket connected successfully', false);
+                    reconnectAttempts = 0; // Reset reconnect attempts
+                    reconnectDelay = 1000; // Reset delay
                 };
                 ws.onmessage = (event) => {
                     const msg = JSON.parse(event.data);
@@ -357,22 +364,45 @@
                         displayMessage(null, false, 'file', msg.file_url);
                     } else if (msg.type === 'call_signal') {
                         handleCallSignal(msg);
+                    } else if (msg.type === 'ping') {
+                        console.log('Received ping from server');
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
+                            console.log('Sent pong to server');
+                        }
                     }
                 };
                 ws.onclose = (event) => {
                     console.log('WebSocket disconnected:', event);
-                    showError('WebSocket connection closed. Please check the server at ' + wsUrl, true);
+                    console.log('Close code:', event.code, 'Reason:', event.reason);
+                    showError(`WebSocket connection closed (Code: ${event.code}, Reason: ${event.reason || 'Unknown'}). Reconnecting...`, true);
                     ws = null;
+                    attemptReconnect(wsUrl);
                 };
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
-                    showError('Failed to connect to WebSocket server at ' + wsUrl, true);
+                    showError('WebSocket error occurred. Reconnecting...', true);
                     ws = null;
+                    attemptReconnect(wsUrl);
                 };
             } catch (error) {
                 showError('Error initializing WebSocket: ' + error.message, true);
                 ws = null;
+                attemptReconnect(wsUrl);
             }
+        }
+
+        function attemptReconnect(wsUrl) {
+            if (reconnectAttempts >= maxReconnectAttempts) {
+                showError('Max reconnection attempts reached. Please retry manually.', true);
+                return;
+            }
+            reconnectAttempts++;
+            setTimeout(() => {
+                console.log(`Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts}`);
+                initializeWebSocket(wsUrl);
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000); // Exponential backoff, max 30 seconds
+            }, reconnectDelay);
         }
 
         sendButton.addEventListener('click', () => {
