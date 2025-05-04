@@ -197,13 +197,12 @@ func main() {
 
     // Clean and validate Supabase URL
     supabaseURL = strings.TrimSpace(supabaseURL)
-    supabaseURL = strings.TrimPrefix(supabaseURL, "https://https//") // Remove duplicate https
+    supabaseURL = strings.TrimPrefix(supabaseURL, "https://https//")
     supabaseURL = strings.TrimPrefix(supabaseURL, "https//")
     supabaseURL = strings.TrimSuffix(supabaseURL, "/")
     if !strings.HasPrefix(supabaseURL, "https://") {
         supabaseURL = "https://" + supabaseURL
     }
-    // Remove any duplicate .supabase.co
     if strings.Count(supabaseURL, ".supabase.co") > 1 {
         parts := strings.SplitAfterN(supabaseURL, ".supabase.co", 2)
         supabaseURL = parts[0]
@@ -582,12 +581,10 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 // Users handler
 func usersHandler(w http.ResponseWriter, r *http.Request) {
-    // Log the authenticated user making the request
     userID := r.Context().Value("user_id").(string)
     username := r.Context().Value("username").(string)
     log.Printf("Fetching users for authenticated user: %s (user_id: %s)", username, userID)
 
-    // Fetch users from Supabase
     var rawUsers []map[string]interface{}
     data, _, err := postgrestClient.From("users").Select("user_id, username", "exact", false).Execute()
     if err != nil {
@@ -596,20 +593,16 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Log the raw response from Supabase
     log.Printf("Raw response from Supabase: %s", string(data))
 
-    // Unmarshal the raw data into a slice of maps
     if err := json.Unmarshal(data, &rawUsers); err != nil {
         log.Printf("Error unmarshaling users: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
-    // Log the number of users fetched
     log.Printf("Fetched %d users from Supabase", len(rawUsers))
 
-    // Convert to structured response
     users := make([]UserResponse, 0, len(rawUsers))
     for _, rawUser := range rawUsers {
         user := UserResponse{
@@ -619,18 +612,15 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
         users = append(users, user)
     }
 
-    // Log the final response being sent
     responseBytes, _ := json.Marshal(users)
     log.Printf("Sending response: %s", string(responseBytes))
 
-    // Send the response
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(users)
 }
 
 // Messages handler
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
-    // userID := r.Context().Value("user_id").(string) // Commented out to fix build error
     chatID := r.URL.Query().Get("chat_id")
     if chatID == "" {
         log.Println("chat_id parameter missing in /messages request")
@@ -638,7 +628,6 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Fetch messages for the chat
     var messages []Message
     data, _, err := postgrestClient.From("messages").Select("*", "exact", false).Eq("chat_id", chatID).Execute()
     if err != nil {
@@ -659,7 +648,6 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
     userID := r.Context().Value("user_id").(string)
 
-    // Fetch chats where user is participant1 or participant2
     var chats []Chat
     query := postgrestClient.From("chats").Select("*", "exact", false)
     query = query.Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID), "")
@@ -705,7 +693,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Upload to Supabase storage
     fileName := fmt.Sprintf("%s/%s", userID, handler.Filename)
     _, err = storageClient.UploadFile("chat-files", fileName, bytes.NewReader(fileBytes))
     if err != nil {
@@ -714,7 +701,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Generate signed URL
     signedURLResponse, err := storageClient.CreateSignedUrl("chat-files", fileName, 3600)
     if err != nil {
         log.Printf("Error generating signed URL: %v", err)
@@ -722,10 +708,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Extract the URL string from SignedUrlResponse
     signedURL := signedURLResponse.SignedURL
-
-    // Encrypt the URL
     encryptedURL, err := encryptString(signedURL)
     if err != nil {
         log.Printf("Error encrypting file URL: %v", err)
@@ -745,7 +728,6 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     encryptedPath := vars["path"]
 
-    // Decrypt the path
     signedURL, err := decryptString(encryptedPath)
     if err != nil {
         log.Printf("Error decrypting file URL: %v", err)
@@ -753,7 +735,6 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Fetch file from Supabase storage
     resp, err := http.Get(signedURL)
     if err != nil || resp.StatusCode != http.StatusOK {
         log.Printf("Error fetching file from Supabase: %v", err)
@@ -762,7 +743,6 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
     }
     defer resp.Body.Close()
 
-    // Stream file to client
     w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
     io.Copy(w, resp.Body)
 }
@@ -805,23 +785,49 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Validate JWT
-    parsedToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
-        return []byte(jwtSecret), nil
-    })
-    if err != nil || !parsedToken.Valid {
-        log.Printf("Invalid WebSocket token: %v", err)
+    // اعتبارسنجی توکن با Supabase
+    authURL := supabaseURL + "/auth/v1/user"
+    req, err := http.NewRequest("GET", authURL, nil)
+    if err != nil {
+        log.Printf("Error creating user request for token validation: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    req.Header.Set("Authorization", "Bearer "+token)
+    req.Header.Set("apikey", supabaseServiceKey)
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        log.Printf("Error validating token with Supabase: %v", err)
+        http.Error(w, "Invalid token", http.StatusUnauthorized)
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        log.Printf("Error validating token: %s", string(body))
         http.Error(w, "Invalid token", http.StatusUnauthorized)
         return
     }
 
-    claims, ok := parsedToken.Claims.(jwt.MapClaims)
-    if !ok || claims["sub"] == nil {
-        log.Println("Invalid WebSocket token claims")
+    var userResponse struct {
+        ID       string                 `json:"id"`
+        UserMeta map[string]interface{} `json:"user_metadata"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&userResponse); err != nil {
+        log.Printf("Error decoding user response: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    userID := userResponse.ID
+    if userID == "" {
+        log.Println("User ID not found in token response")
         http.Error(w, "Invalid token", http.StatusUnauthorized)
         return
     }
-    userID := claims["sub"].(string)
 
     // Upgrade to WebSocket
     conn, err := upgrader.Upgrade(w, r, nil)
@@ -848,10 +854,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         log.Printf("WebSocket client disconnected: %s", userID)
     }()
 
-    // Define context for FCM
     ctx := context.Background()
 
-    // Handle messages
     for {
         var msg Message
         err := conn.ReadJSON(&msg)
@@ -863,10 +867,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         msg.Timestamp = time.Now()
         msg.Status = "sent"
 
-        // Handle different message types
         switch msg.Type {
         case "text", "file":
-            // Insert message into database
             messageData := map[string]interface{}{
                 "chat_id":  fmt.Sprintf("%s:%s", msg.Sender, msg.Receiver),
                 "sender":   msg.Sender,
@@ -889,7 +891,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 continue
             }
 
-            // Forward message to receiver
             clientsMutex.Lock()
             if receiverClient, exists := clients[msg.Receiver]; exists && receiverClient.Conn != nil {
                 err = receiverClient.Conn.WriteJSON(msg)
@@ -897,14 +898,12 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                     log.Printf("Error sending message to receiver %s: %v", msg.Receiver, err)
                 } else {
                     msg.Status = "delivered"
-                    // Update message status in database
                     _, _, err = postgrestClient.From("messages").Update(map[string]interface{}{"status": "delivered"}, "", "exact").Eq("id", result[0]["id"].(string)).Execute()
                     if err != nil {
                         log.Printf("Error updating message status: %v", err)
                     }
                 }
             } else {
-                // Send push notification if receiver is offline
                 if fcmEnabled {
                     clientsMutex.Lock()
                     if receiverClient != nil && receiverClient.PushToken != "" {
@@ -926,7 +925,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             clientsMutex.Unlock()
 
         case "call_signal":
-            // Handle WebRTC signaling
             clientsMutex.Lock()
             if receiverClient, exists := clients[msg.Receiver]; exists && receiverClient.Conn != nil {
                 err = receiverClient.Conn.WriteJSON(msg)
@@ -936,7 +934,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             }
             clientsMutex.Unlock()
 
-            // Log call in calls table
             if msg.Signal.Type == "call-initiate" {
                 callData := map[string]interface{}{
                     "caller":     msg.Sender,
@@ -950,7 +947,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                     log.Printf("Error logging call to Supabase: %v", err)
                 }
             } else if msg.Signal.Type == "call-accept" || msg.Signal.Type == "call-reject" {
-                // Update call status
                 _, _, err = postgrestClient.From("calls").Update(map[string]interface{}{
                     "status":    msg.Signal.CallStatus,
                     "end_time":  time.Now(),
