@@ -47,6 +47,9 @@ var (
     supabaseURL  string
     supabaseServiceKey string
     supabaseAnonKey    string
+    // Rate limiting for pong messages
+    lastPongLog = make(map[string]time.Time) // Track last pong log time per client
+    pongLogInterval = 30 * time.Second       // Log pong messages at most once every 30 seconds
 )
 
 // Client struct for WebSocket connections
@@ -927,17 +930,30 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 log.Printf("WebSocket closed for user %s: code=%d, reason=%s", userID, websocket.CloseNormalClosure, err.Error())
             } else {
                 log.Printf("Error reading WebSocket message for user %s: %v", userID, err)
+                // Log additional details for debugging
+                if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+                    log.Printf("Unexpected WebSocket closure for user %s: %v", userID, err)
+                }
             }
             break
         }
 
         if msg.Type == "pong" {
-            log.Printf("Received pong from client %s", userID)
+            // Rate-limit pong logging
+            clientsMutex.Lock()
+            lastLog, exists := lastPongLog[userID]
+            shouldLog := !exists || time.Since(lastLog) >= pongLogInterval
+            if shouldLog {
+                log.Printf("Received pong from client %s", userID)
+                lastPongLog[userID] = time.Now()
+            }
+            clientsMutex.Unlock()
             continue
         }
 
         msg.Timestamp = time.Now()
-        msg.Status = "sent"
+        // Temporarily disable status field until the database schema is updated
+        // msg.Status = "sent"
 
         switch msg.Type {
         case "text", "file":
@@ -949,7 +965,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 "file_url": msg.FileURL,
                 "type":     msg.Type,
                 "timestamp": msg.Timestamp,
-                "status":   msg.Status,
+                // "status":   msg.Status, // Commented out until schema is updated
             }
             // Only include file_type if it's present and non-empty
             if msg.FileType != "" {
@@ -983,11 +999,12 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 if err != nil {
                     log.Printf("Error sending message to receiver %s: %v", msg.Receiver, err)
                 } else {
-                    msg.Status = "delivered"
-                    _, _, err = postgrestClient.From("messages").Update(map[string]interface{}{"status": "delivered"}, "", "exact").Eq("id", result[0]["id"].(string)).Execute()
-                    if err != nil {
-                        log.Printf("Error updating message status: %v", err)
-                    }
+                    // Temporarily disable status update until schema is updated
+                    // msg.Status = "delivered"
+                    // _, _, err = postgrestClient.From("messages").Update(map[string]interface{}{"status": "delivered"}, "", "exact").Eq("id", result[0]["id"].(string)).Execute()
+                    // if err != nil {
+                    //     log.Printf("Error updating message status: %v", err)
+                    // }
                 }
             } else {
                 if fcmEnabled {
