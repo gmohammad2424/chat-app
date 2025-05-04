@@ -785,7 +785,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // اعتبارسنجی توکن با Supabase
+    // Validate token with Supabase
     authURL := supabaseURL + "/auth/v1/user"
     req, err := http.NewRequest("GET", authURL, nil)
     if err != nil {
@@ -796,8 +796,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
     req.Header.Set("Authorization", "Bearer "+token)
     req.Header.Set("apikey", supabaseServiceKey)
 
-    client := &http.Client{}
-    resp, err := client.Do(req)
+    httpClient := &http.Client{} // Use a distinct name to avoid shadowing
+    resp, err := httpClient.Do(req)
     if err != nil {
         log.Printf("Error validating token with Supabase: %v", err)
         http.Error(w, "Invalid token", http.StatusUnauthorized)
@@ -838,11 +838,11 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
     // Register client
     clientsMutex.Lock()
-    client := &Client{Conn: conn}
+    wsClient := &Client{Conn: conn} // Use a distinct name for the WebSocket client
     if existingClient, exists := clients[userID]; exists {
-        client.PushToken = existingClient.PushToken
+        wsClient.PushToken = existingClient.PushToken
     }
-    clients[userID] = client
+    clients[userID] = wsClient
     clientsMutex.Unlock()
 
     log.Printf("WebSocket client connected: %s", userID)
