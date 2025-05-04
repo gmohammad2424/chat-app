@@ -3,27 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chats</title>
+    <title>Chat</title>
     <style>
         body {
             background-color: #1c2526;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            margin: 0;
-            font-family: Arial, sans-serif;
         }
         .container {
             background-color: #d3d3d3;
             border-radius: 10px;
             width: 100%;
             max-width: 400px;
-            text-align: center;
+            padding: 20px;
+            box-shadow: -5px 5px 10px rgba(0, 0, 0, 0.3);
             display: flex;
             flex-direction: column;
             height: 80vh;
-            box-shadow: -5px 5px 10px rgba(0, 0, 0, 0.3);
         }
         .header {
             background-color: #333;
@@ -37,11 +38,6 @@
             position: sticky;
             top: 0;
             z-index: 10;
-        }
-        .header h2 {
-            font-size: 1.5rem;
-            margin: 0;
-            font-weight: bold;
         }
         .call-buttons button {
             background: none;
@@ -188,22 +184,9 @@
         }
         #error {
             color: #ff4444;
+            text-align: center;
             margin-top: 10px;
             display: none;
-            padding: 10px;
-            background-color: rgba(255, 255, 255, 0.1);
-            border-radius: 5px;
-        }
-        #error button {
-            background-color: #007bff;
-            margin-top: 10px;
-            padding: 8px 16px;
-            border-radius: 5px;
-            box-shadow: none;
-            margin-right: 10px;
-        }
-        #error button:hover {
-            background-color: #0056b3;
         }
     </style>
 </head>
@@ -248,41 +231,34 @@
         const remoteVideo = document.getElementById('remote-video');
         const endCallButton = document.getElementById('end-call-button');
         const callStatus = document.getElementById('call-status');
+        const errorDiv = document.getElementById('error');
         let ws = null;
         let peerConnection = null;
         let localStream = null;
 
-        // بارگذاری پیام‌های ذخیره‌شده از localStorage
+        // بررسی ورود
+        function checkLogin() {
+            const token = localStorage.getItem('access_token');
+            if (!token) {
+                window.location.href = 'login.html'; // هدایت به صفحه ورود اگر توکن وجود نداشته باشد
+                return false;
+            }
+            return true;
+        }
+
+        function showError(message) {
+            errorDiv.innerText = message;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
         function loadMessages() {
             const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
             savedMessages.forEach(msg => {
                 displayMessage(msg.content, msg.isSent, msg.type, msg.fileUrl);
             });
-        }
-
-        function showError(message, showRetry = false, showLocalSwitch = false) {
-            const errorDiv = document.getElementById('error');
-            errorDiv.innerHTML = message;
-            if (showRetry) {
-                const retryButton = document.createElement('button');
-                retryButton.innerText = 'Retry Connection';
-                retryButton.addEventListener('click', () => {
-                    errorDiv.style.display = 'none';
-                    initializeWebSocket();
-                });
-                errorDiv.appendChild(retryButton);
-            }
-            if (showLocalSwitch) {
-                const localButton = document.createElement('button');
-                localButton.innerText = 'Switch to Local (ws://localhost:8080)';
-                localButton.addEventListener('click', () => {
-                    errorDiv.style.display = 'none';
-                    initializeWebSocket('ws://localhost:8080');
-                });
-                errorDiv.appendChild(localButton);
-            }
-            errorDiv.style.display = 'block';
-            console.error(message);
         }
 
         function displayMessage(content, isSent = true, type = 'text', fileUrl = null) {
@@ -313,21 +289,23 @@
             chatArea.appendChild(messageDiv);
             chatArea.scrollTop = chatArea.scrollHeight;
 
-            // ذخیره پیام در localStorage
             const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
             savedMessages.push({ content, isSent, type, fileUrl, timestamp: new Date().toISOString() });
             localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
         }
 
-        function initializeWebSocket(wsUrlOverride = null) {
-            const wsUrl = wsUrlOverride || 'wss://chat-backend-gxh8.onrender.com/ws'; // سرور رندر (پیش‌فرض)
-            const token = localStorage.getItem('access_token'); // فرض می‌کنیم توکن در localStorage با این کلید ذخیره شده
+        function initializeWebSocket() {
+            if (!checkLogin()) return;
+
+            const wsUrl = 'wss://chat-backend-gxh8.onrender.com/ws';
+            const token = localStorage.getItem('access_token');
             if (!token) {
-                showError('No authentication token found. Please login again.', false);
+                showError('No authentication token found. Redirecting to login...');
+                window.location.href = 'login.html';
                 return;
             }
 
-            const urlWithToken = `${wsUrl}?token=${encodeURIComponent(token)}`; // افزودن توکن به کوئری
+            const urlWithToken = `${wsUrl}?token=${encodeURIComponent(token)}`;
             try {
                 ws = new WebSocket(urlWithToken);
                 ws.onopen = () => {
@@ -346,30 +324,34 @@
                 };
                 ws.onclose = () => {
                     console.log('WebSocket disconnected');
-                    showError('WebSocket connection closed. Please check the server at ' + wsUrl, true, wsUrl.includes('onrender.com'));
+                    showError('WebSocket connection closed. Please check the server at ' + wsUrl);
                 };
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
-                    showError('Failed to connect to WebSocket server at ' + wsUrl, true, wsUrl.includes('onrender.com'));
+                    showError('Failed to connect to WebSocket server at ' + wsUrl);
                 };
             } catch (error) {
-                showError('Error initializing WebSocket: ' + error.message, true, wsUrl.includes('onrender.com'));
+                showError('Error initializing WebSocket: ' + error.message);
             }
         }
 
         sendButton.addEventListener('click', () => {
+            if (!checkLogin()) return;
+
             const content = messageInput.value.trim();
             if (!content) return;
             displayMessage(content, true);
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'text', content, sender: localStorage.getItem('user_id') }));
             } else {
-                showError('WebSocket is not connected. Cannot send message.', true);
+                showError('WebSocket is not connected. Cannot send message.');
             }
             messageInput.value = '';
         });
 
         fileInput.addEventListener('change', () => {
+            if (!checkLogin()) return;
+
             const file = fileInput.files[0];
             if (!file) return;
 
@@ -380,7 +362,7 @@
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ type: 'file', file_url: fileUrl, sender: localStorage.getItem('user_id') }));
                 } else {
-                    showError('WebSocket is not connected. Cannot send file.', true);
+                    showError('WebSocket is not connected. Cannot send file.');
                 }
             };
             reader.readAsDataURL(file);
@@ -390,6 +372,8 @@
         const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
         async function startCall(callType) {
+            if (!checkLogin()) return;
+
             try {
                 peerConnection = new RTCPeerConnection(servers);
                 const constraints = callType === 'video' ? { video: true, audio: true } : { audio: true };
@@ -426,7 +410,7 @@
                         signal: { type: 'call-initiate', offer: offer, call_type: callType }
                     }));
                 } else {
-                    showError('WebSocket is not connected. Cannot start call.', true);
+                    showError('WebSocket is not connected. Cannot start call.');
                 }
 
                 videoCallArea.style.display = 'flex';
@@ -442,6 +426,8 @@
         }
 
         async function handleCallSignal(msg) {
+            if (!checkLogin()) return;
+
             try {
                 if (!peerConnection) {
                     peerConnection = new RTCPeerConnection(servers);
@@ -533,9 +519,11 @@
         audioCallButton.addEventListener('click', () => startCall('audio'));
         endCallButton.addEventListener('click', endCall);
 
-        // بارگذاری پیام‌ها و راه‌اندازی WebSocket
-        loadMessages();
-        initializeWebSocket();
+        // بارگذاری اولیه
+        if (checkLogin()) {
+            loadMessages();
+            initializeWebSocket();
+        }
     </script>
 </body>
 </html>
