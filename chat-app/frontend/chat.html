@@ -1,988 +1,601 @@
-package main
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat</title>
+    <style>
+        body {
+            background-color: #1c2526;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: #d3d3d3;
+            border-radius: 10px;
+            width: 100%;
+            max-width: 400px;
+            padding: 20px;
+            box-shadow: -5px 5px 10px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            height: 80vh;
+        }
+        .header {
+            background-color: #333;
+            color: white;
+            padding: 15px;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .call-buttons button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1.5rem;
+            margin-left: 10px;
+            color: white;
+            transition: color 0.3s;
+        }
+        .call-buttons button:hover {
+            color: #ccc;
+        }
+        .call-buttons .video-call-btn::before {
+            content: "📹";
+        }
+        .call-buttons .audio-call-btn::before {
+            content: "🎙️";
+        }
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background-color: #e5e5e5;
+            border-top: 1px solid #ccc;
+            border-bottom: 1px solid #ccc;
+        }
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+        .message.sent {
+            align-items: flex-end;
+        }
+        .message.received {
+            align-items: flex-start;
+        }
+        .message-content {
+            max-width: 70%;
+            padding: 10px;
+            border-radius: 10px;
+            color: #333;
+            font-size: 1rem;
+            line-height: 1.4;
+        }
+        .message.sent .message-content {
+            background-color: #007bff;
+            color: white;
+        }
+        .message.received .message-content {
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        .message img, .message a {
+            max-width: 200px;
+            border-radius: 5px;
+            margin-top: 5px;
+        }
+        .input-group {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background-color: #d3d3d3;
+            border-bottom-left-radius: 10px;
+            border-bottom-right-radius: 10px;
+            position: sticky;
+            bottom: 0;
+            gap: 10px;
+        }
+        .input-group input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 20px;
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            font-size: 1rem;
+            color: #333;
+        }
+        .input-group input[type="text"]::placeholder {
+            color: #666;
+        }
+        .input-group button, .input-group label {
+            padding: 10px;
+            background-color: #333;
+            color: white;
+            font-size: 1rem;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.5), 0 0 10px rgba(255, 0, 255, 0.5);
+            transition: background-color 0.3s;
+        }
+        .input-group button:hover, .input-group label:hover {
+            background-color: #444;
+        }
+        #file-input {
+            display: none;
+        }
+        .video-call-area {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .video-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        #local-video, #remote-video {
+            width: 320px;
+            height: 240px;
+            border-radius: 5px;
+            background-color: #000;
+        }
+        .call-controls button {
+            background-color: #ff4444;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            margin: 0 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.5), 0 0 10px rgba(255, 0, 255, 0.5);
+            transition: background-color 0.3s;
+        }
+        .call-controls button:hover {
+            background-color: #cc3333;
+        }
+        #call-status {
+            color: #ff4444;
+            margin-top: 10px;
+            display: none;
+        }
+        #error {
+            color: #ff4444;
+            text-align: center;
+            margin-top: 10px;
+            display: none;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+        }
+        #error button {
+            background-color: #007bff;
+            margin-top: 10px;
+            padding: 8px 16px;
+            border-radius: 5px;
+            box-shadow: none;
+            margin-right: 10px;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        #error button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Chats</h2>
+            <div class="call-buttons">
+                <button class="video-call-btn" id="video-call-button"></button>
+                <button class="audio-call-btn" id="audio-call-button"></button>
+            </div>
+        </div>
+        <div class="chat-area" id="chat-area"></div>
+        <div class="input-group">
+            <input type="text" id="message-input" placeholder="Type a message..." />
+            <label id="file-input-label" for="file-input">📎</label>
+            <input type="file" id="file-input" />
+            <button id="send-button">➤</button>
+        </div>
+        <div id="call-status"></div>
+        <div id="error"></div>
+    </div>
+    <div class="video-call-area" id="video-call-area">
+        <div class="video-container">
+            <video id="local-video" autoplay playsinline muted></video>
+            <video id="remote-video" autoplay playsinline></video>
+        </div>
+        <div class="call-controls">
+            <button id="end-call-button">End Call</button>
+        </div>
+    </div>
 
-import (
-    "bytes"
-    "context"
-    "crypto/aes"
-    "crypto/cipher"
-    "crypto/rand"
-    "encoding/base64"
-    "encoding/json"
-    "fmt"
-    "io"
-    "log"
-    "net/http"
-    "os"
-    "strings"
-    "sync"
-    "time"
+    <script>
+        const chatArea = document.getElementById('chat-area');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const fileInput = document.getElementById('file-input');
+        const videoCallButton = document.getElementById('video-call-button');
+        const audioCallButton = document.getElementById('audio-call-button');
+        const videoCallArea = document.getElementById('video-call-area');
+        const localVideo = document.getElementById('local-video');
+        const remoteVideo = document.getElementById('remote-video');
+        const endCallButton = document.getElementById('end-call-button');
+        const callStatus = document.getElementById('call-status');
+        const errorDiv = document.getElementById('error');
+        let ws = null;
+        let peerConnection = null;
+        let localStream = null;
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 5;
+        let reconnectDelay = 1000; // Initial delay in ms
 
-    "firebase.google.com/go/v4"
-    "firebase.google.com/go/v4/messaging"
-    "github.com/dgrijalva/jwt-go"
-    "github.com/gorilla/handlers"
-    "github.com/gorilla/mux"
-    "github.com/gorilla/websocket"
-    "github.com/joho/godotenv"
-    "github.com/supabase-community/gotrue-go"
-    "github.com/supabase-community/gotrue-go/types"
-    "github.com/supabase-community/postgrest-go"
-    "github.com/supabase-community/storage-go"
-)
-
-// Global variables
-var (
-    clients      = make(map[string]*Client) // Map of user_ids to WebSocket clients
-    clientsMutex sync.Mutex                 // Mutex for thread-safe access
-    fcmClient    *messaging.Client          // Firebase Cloud Messaging client
-    postgrestClient *postgrest.Client       // PostgREST client for database operations
-    storageClient *storage_go.Client        // Supabase client for storage
-    authClient   gotrue.Client              // Supabase client for authentication
-    jwtSecret    string                     // JWT secret for token generation
-    encryptionKey []byte                    // Encryption key for file URLs
-    fcmEnabled   bool                       // Flag to indicate if FCM is enabled
-    adminUserID  = "550e8400-e29b-41d4-a716-446655440000" // Admin's UUID
-    supabaseURL  string
-    supabaseServiceKey string
-    supabaseAnonKey    string
-)
-
-// Client struct for WebSocket connections
-type Client struct {
-    Conn      *websocket.Conn
-    PushToken string
-}
-
-// Chat struct to match the chats table schema
-type Chat struct {
-    ID           string `json:"id"`
-    Participant1 string `json:"participant1"` // UUID
-    Participant2 string `json:"participant2"` // UUID
-}
-
-// Message struct for chat messages
-type Message struct {
-    Type      string     `json:"type"`      // "text", "file", "call_signal", "ping", "pong"
-    Sender    string     `json:"sender"`    // UUID
-    Receiver  string     `json:"receiver"`  // UUID
-    Content   string     `json:"content,omitempty"`
-    FileURL   string     `json:"file_url,omitempty"`
-    FileType  string     `json:"file_type,omitempty"`
-    Timestamp time.Time  `json:"timestamp"`
-    Status    string     `json:"status"`
-    Signal    SignalData `json:"signal,omitempty"` // For WebRTC signaling
-}
-
-// SignalData for WebRTC signaling
-type SignalData struct {
-    Type       string      `json:"type"`       // "offer", "answer", "ice-candidate", "call-initiate", "call-accept", "call-reject"
-    Offer      interface{} `json:"offer,omitempty"`
-    Answer     interface{} `json:"answer,omitempty"`
-    Candidate  interface{} `json:"candidate,omitempty"`
-    CallType   string      `json:"call_type,omitempty"` // "video" or "audio"
-    CallStatus string      `json:"call_status,omitempty"`
-}
-
-// User struct for registration
-type User struct {
-    Username string `json:"username"`
-    Email    string `json:"email"`
-    Password string `json:"password"`
-}
-
-// UserResponse struct for the /users endpoint response
-type UserResponse struct {
-    UserID   string `json:"user_id"`
-    Username string `json:"username"`
-}
-
-// PushRegistration struct for FCM tokens
-type PushRegistration struct {
-    UserID string `json:"user_id"` // UUID
-    Token  string `json:"token"`
-}
-
-// WebSocket upgrader
-var upgrader = websocket.Upgrader{
-    CheckOrigin: func(r *http.Request) bool {
-        return true // Allow all origins for WebSocket
-    },
-}
-
-// Encrypt a string using AES-256-GCM
-func encryptString(plaintext string) (string, error) {
-    block, err := aes.NewCipher(encryptionKey)
-    if err != nil {
-        return "", err
-    }
-
-    aesGCM, err := cipher.NewGCM(block)
-    if err != nil {
-        return "", err
-    }
-
-    nonce := make([]byte, aesGCM.NonceSize())
-    if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
-        return "", err
-    }
-
-    ciphertext := aesGCM.Seal(nonce, nonce, []byte(plaintext), nil)
-    return base64.StdEncoding.EncodeToString(ciphertext), nil
-}
-
-// Decrypt a string using AES-256-GCM
-func decryptString(encrypted string) (string, error) {
-    data, err := base64.StdEncoding.DecodeString(encrypted)
-    if err != nil {
-        return "", err
-    }
-
-    block, err := aes.NewCipher(encryptionKey)
-    if err != nil {
-        return "", err
-    }
-
-    aesGCM, err := cipher.NewGCM(block)
-    if err != nil {
-        return "", err
-    }
-
-    nonceSize := aesGCM.NonceSize()
-    if len(data) < nonceSize {
-        return "", fmt.Errorf("ciphertext too short")
-    }
-
-    nonce, ciphertext := data[:nonceSize], data[nonceSize:]
-    plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
-    if err != nil {
-        return "", err
-    }
-
-    return string(plaintext), nil
-}
-
-func main() {
-    // Load environment variables
-    err := godotenv.Load()
-    if err != nil {
-        log.Println("No .env file found, relying on environment variables")
-    }
-
-    // Get JWT secret
-    jwtSecret = os.Getenv("JWT_SECRET")
-    if jwtSecret == "" {
-        log.Fatal("JWT_SECRET environment variable is required")
-    }
-
-    // Get encryption key
-    encryptionKeyString := os.Getenv("ENCRYPTION_KEY")
-    if encryptionKeyString == "" {
-        log.Fatal("ENCRYPTION_KEY environment variable is required")
-    }
-    encryptionKey, err = base64.StdEncoding.DecodeString(encryptionKeyString)
-    if err != nil {
-        log.Fatalf("Error decoding ENCRYPTION_KEY: %v", err)
-    }
-    if len(encryptionKey) != 32 { // AES-256 requires a 32-byte key
-        log.Fatal("ENCRYPTION_KEY must be a 32-byte key (base64 encoded)")
-    }
-
-    // Initialize Supabase clients
-    supabaseURL = os.Getenv("SUPABASE_URL")
-    supabaseServiceKey = os.Getenv("SUPABASE_SERVICE_KEY")
-    supabaseAnonKey = os.Getenv("SUPABASE_ANON_KEY")
-    if supabaseURL == "" || supabaseServiceKey == "" || supabaseAnonKey == "" {
-        log.Fatal("SUPABASE_URL, SUPABASE_SERVICE_KEY, and SUPABASE_ANON_KEY environment variables are required")
-    }
-
-    // Clean and validate Supabase URL
-    supabaseURL = strings.TrimSpace(supabaseURL)
-    supabaseURL = strings.TrimPrefix(supabaseURL, "https://https//")
-    supabaseURL = strings.TrimPrefix(supabaseURL, "https//")
-    supabaseURL = strings.TrimSuffix(supabaseURL, "/")
-    if !strings.HasPrefix(supabaseURL, "https://") {
-        supabaseURL = "https://" + supabaseURL
-    }
-    if strings.Count(supabaseURL, ".supabase.co") > 1 {
-        parts := strings.SplitAfterN(supabaseURL, ".supabase.co", 2)
-        supabaseURL = parts[0]
-    }
-    if !strings.HasSuffix(supabaseURL, ".supabase.co") || !strings.Contains(supabaseURL, "vridcilbrgyrxxmnjcqq") {
-        log.Fatal("SUPABASE_URL must be in the format https://vridcilbrgyrxxmnjcqq.supabase.co")
-    }
-    log.Printf("Cleaned SUPABASE_URL: %s", supabaseURL)
-
-    // PostgREST client (for database operations)
-    postgrestURL := supabaseURL + "/rest/v1"
-    log.Printf("PostgREST URL: %s", postgrestURL)
-    postgrestClient = postgrest.NewClient(postgrestURL, "", map[string]string{
-        "Authorization": "Bearer " + supabaseServiceKey,
-        "apikey":        supabaseServiceKey,
-    })
-    if postgrestClient == nil {
-        log.Fatal("Failed to initialize PostgREST client")
-    }
-
-    // Storage client
-    storageURL := supabaseURL + "/storage/v1"
-    log.Printf("Storage URL: %s", storageURL)
-    storageClient = storage_go.NewClient(storageURL, supabaseServiceKey, nil)
-
-    // Auth client (uses anon key for user authentication)
-    authURL := supabaseURL + "/auth/v1"
-    log.Printf("Auth URL: %s", authURL)
-    authClient = gotrue.New(supabaseURL, supabaseAnonKey)
-    if authClient == nil {
-        log.Fatal("Failed to initialize Supabase auth client")
-    }
-
-    // Initialize Firebase
-    ctx := context.Background()
-    credentialsPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if credentialsPath == "" {
-        log.Println("GOOGLE_APPLICATION_CREDENTIALS not set, push notifications will be disabled")
-        fcmEnabled = false
-    } else {
-        log.Printf("Using Firebase credentials from GOOGLE_APPLICATION_CREDENTIALS: %s", credentialsPath)
-        app, err := firebase.NewApp(ctx, nil)
-        if err != nil {
-            log.Printf("Error initializing Firebase app: %v", err)
-            fcmEnabled = false
-        } else {
-            fcmClient, err = app.Messaging(ctx)
-            if err != nil {
-                log.Printf("Error initializing FCM client: %v", err)
-                fcmEnabled = false
-            } else {
-                fcmEnabled = true
-                log.Println("Firebase Cloud Messaging initialized successfully")
+        // بررسی ورود
+        function checkLogin() {
+            const token = localStorage.getItem('access_token');
+            const userId = localStorage.getItem('user_id');
+            console.log('Checking login, token:', token, 'user_id:', userId);
+            if (!token || !userId) {
+                console.log('Token or user_id missing, redirecting to login.html');
+                showError('Authentication required. Redirecting to login...');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 2000);
+                return false;
             }
-        }
-    }
-
-    // Initialize router
-    router := mux.NewRouter()
-
-    // API routes
-    router.HandleFunc("/signup", signupHandler).Methods("POST")
-    router.HandleFunc("/login", loginHandler).Methods("POST")
-    router.HandleFunc("/users", authMiddleware(usersHandler)).Methods("GET")
-    router.HandleFunc("/messages", authMiddleware(messagesHandler)).Methods("GET")
-    router.HandleFunc("/allowed-chats", authMiddleware(allowedChatsHandler)).Methods("GET")
-    router.HandleFunc("/upload", authMiddleware(uploadHandler)).Methods("POST")
-    router.HandleFunc("/file/{path:.*}", authMiddleware(fileHandler)).Methods("GET")
-    router.HandleFunc("/register-push", authMiddleware(registerPushHandler)).Methods("POST")
-    router.HandleFunc("/ws", wsHandler).Methods("GET")
-
-    // Root handler
-    router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        fmt.Fprintf(w, "Chat App Backend")
-    })
-
-    // CORS middleware
-    corsHandler := handlers.CORS(
-        handlers.AllowedOrigins([]string{"*"}),
-        handlers.AllowedMethods([]string{"GET", "POST", "OPTIONS"}),
-        handlers.AllowedHeaders([]string{"Content-Type", "Authorization"}),
-        handlers.AllowCredentials(),
-        handlers.OptionStatusCode(http.StatusNoContent),
-    )
-
-    // Wrap router with CORS and logging
-    loggedRouter := corsHandler(router)
-
-    // Start server with logging
-    port := os.Getenv("PORT")
-    if port == "" {
-        port = "8080"
-    }
-    log.Printf("Server running on port %s", port)
-    log.Fatal(http.ListenAndServe(":"+port, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        log.Printf("Received request: %s %s from %s", r.Method, r.URL.Path, r.Header.Get("Origin"))
-        log.Printf("Request headers: %v", r.Header)
-        loggedRouter.ServeHTTP(w, r)
-        log.Printf("Response headers: %v", w.Header())
-    })))
-}
-
-// Signup handler
-func signupHandler(w http.ResponseWriter, r *http.Request) {
-    var user User
-    if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-        log.Printf("Invalid request body for /signup: %v", err)
-        http.Error(w, "Invalid request", http.StatusBadRequest)
-        return
-    }
-
-    if user.Username == "" || user.Email == "" || user.Password == "" {
-        log.Println("Username, email, or password missing in /signup request")
-        http.Error(w, "Username, email, and password are required", http.StatusBadRequest)
-        return
-    }
-
-    // Check if username exists
-    var existingUsers []map[string]interface{}
-    data, _, err := postgrestClient.From("users").Select("*", "exact", false).Eq("username", user.Username).Execute()
-    if err != nil {
-        log.Printf("Error checking user in Supabase: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-    if err := json.Unmarshal(data, &existingUsers); err != nil {
-        log.Printf("Error unmarshaling users: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    if len(existingUsers) > 0 {
-        log.Printf("Username %s already exists", user.Username)
-        http.Error(w, "Username already exists", http.StatusConflict)
-        return
-    }
-
-    // Create user in Supabase Auth
-    signupRequest := types.SignupRequest{
-        Email:    user.Email,
-        Password: user.Password,
-        Data: map[string]interface{}{
-            "username": user.Username,
-        },
-    }
-    authUser, err := authClient.Signup(signupRequest)
-    if err != nil {
-        log.Printf("Error creating user in Supabase auth: %v", err)
-        http.Error(w, "Failed to register user", http.StatusInternalServerError)
-        return
-    }
-
-    // Sign in to get JWT (using custom authentication)
-    tokenRequest := map[string]interface{}{
-        "grant_type": "password",
-        "email":      user.Email,
-        "password":   user.Password,
-    }
-    tokenRequestBody, err := json.Marshal(tokenRequest)
-    if err != nil {
-        log.Printf("Error marshaling token request: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    authURL := supabaseURL + "/auth/v1/token?grant_type=password"
-    req, err := http.NewRequest("POST", authURL, bytes.NewBuffer(tokenRequestBody))
-    if err != nil {
-        log.Printf("Error creating token request: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-    req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("apikey", supabaseAnonKey)
-
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        log.Printf("Error signing in user %s to get JWT: %v", user.Username, err)
-        http.Error(w, "Failed to generate token", http.StatusInternalServerError)
-        return
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        body, _ := io.ReadAll(resp.Body)
-        log.Printf("Error signing in user %s: %s", user.Username, string(body))
-        http.Error(w, "Failed to generate token", http.StatusInternalServerError)
-        return
-    }
-
-    var authResponse struct {
-        AccessToken string `json:"access_token"`
-    }
-    if err := json.NewDecoder(resp.Body).Decode(&authResponse); err != nil {
-        log.Printf("Error decoding token response: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    // Insert user into users table
-    newUser := map[string]interface{}{
-        "user_id":  authUser.ID.String(),
-        "username": user.Username,
-        "email":    user.Email,
-    }
-    var result []map[string]interface{}
-    data, _, err = postgrestClient.From("users").Insert(newUser, false, "", "representation", "exact").Execute()
-    if err != nil {
-        log.Printf("Error registering user %s in Supabase: %v", user.Username, err)
-        http.Error(w, "Failed to register user", http.StatusInternalServerError)
-        return
-    }
-    if err := json.Unmarshal(data, &result); err != nil {
-        log.Printf("Error unmarshaling insert result: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    log.Printf("User signed up successfully: %s (user_id: %s)", user.Username, authUser.ID.String())
-    json.NewEncoder(w).Encode(map[string]string{
-        "token":   authResponse.AccessToken,
-        "chat_id": authUser.ID.String() + ":",
-    })
-}
-
-// Login handler
-func loginHandler(w http.ResponseWriter, r *http.Request) {
-    var creds struct {
-        Username string `json:"username"`
-        Password string `json:"password"`
-    }
-    if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-        log.Printf("Invalid request body for /login: %v", err)
-        http.Error(w, "Invalid request", http.StatusBadRequest)
-        return
-    }
-
-    log.Printf("Login attempt for username: %s", creds.Username)
-
-    if creds.Username == "" || creds.Password == "" {
-        log.Println("Username or password missing in /login request")
-        http.Error(w, "Invalid credentials", http.StatusBadRequest)
-        return
-    }
-
-    // Fetch user from users table to get email
-    var users []map[string]interface{}
-    data, _, err := postgrestClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).Execute()
-    if err != nil {
-        log.Printf("Error fetching user %s from Supabase: %v", creds.Username, err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-    if err := json.Unmarshal(data, &users); err != nil {
-        log.Printf("Error unmarshaling users: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    if len(users) == 0 {
-        log.Printf("User %s not found in Supabase", creds.Username)
-        http.Error(w, "Invalid username or password", http.StatusUnauthorized)
-        return
-    }
-
-    user := users[0]
-    email, ok := user["email"].(string)
-    if !ok {
-        log.Printf("Invalid email format for user %s in Supabase", creds.Username)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    userID, ok := user["user_id"].(string)
-    if !ok {
-        log.Printf("Invalid user_id format for user %s in Supabase", creds.Username)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    // Custom authentication request to Supabase
-    tokenRequest := map[string]interface{}{
-        "grant_type": "password",
-        "email":      email,
-        "password":   creds.Password,
-    }
-    tokenRequestBody, err := json.Marshal(tokenRequest)
-    if err != nil {
-        log.Printf("Error marshaling token request for user %s: %v", creds.Username, err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    authURL := supabaseURL + "/auth/v1/token?grant_type=password"
-    log.Printf("Sending authentication request to: %s", authURL)
-
-    req, err := http.NewRequest("POST", authURL, bytes.NewBuffer(tokenRequestBody))
-    if err != nil {
-        log.Printf("Error creating token request for user %s: %v", creds.Username, err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-    req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("apikey", supabaseAnonKey)
-
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        log.Printf("Error signing in user %s with Supabase auth: %v", creds.Username, err)
-        http.Error(w, "Invalid username or password", http.StatusUnauthorized)
-        return
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        body, _ := io.ReadAll(resp.Body)
-        log.Printf("Error signing in user %s: %s", creds.Username, string(body))
-        http.Error(w, "Invalid username or password", http.StatusUnauthorized)
-        return
-    }
-
-    var authResponse struct {
-        AccessToken string `json:"access_token"`
-    }
-    if err := json.NewDecoder(resp.Body).Decode(&authResponse); err != nil {
-        log.Printf("Error decoding token response for user %s: %v", creds.Username, err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    log.Printf("Login successful for user: %s (user_id: %s)", creds.Username, userID)
-    json.NewEncoder(w).Encode(map[string]string{
-        "token":   authResponse.AccessToken,
-        "chat_id": userID + ":",
-    })
-}
-
-// Authentication middleware
-func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        authHeader := r.Header.Get("Authorization")
-        if authHeader == "" {
-            log.Println("Authorization header missing")
-            http.Error(w, "Token is required", http.StatusForbidden)
-            return
+            return true;
         }
 
-        tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-        token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-            if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-                return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+        function showError(message, showRetry = false) {
+            errorDiv.innerHTML = message;
+            if (showRetry) {
+                const retryButton = document.createElement('button');
+                retryButton.innerText = 'Retry Connection';
+                retryButton.addEventListener('click', () => {
+                    errorDiv.style.display = 'none';
+                    reconnectAttempts = 0; // Reset attempts on manual retry
+                    reconnectDelay = 1000; // Reset delay
+                    initializeWebSocket();
+                });
+                errorDiv.appendChild(retryButton);
             }
-            return []byte(jwtSecret), nil
-        })
-
-        if err != nil || !token.Valid {
-            log.Printf("Invalid token: %v", err)
-            http.Error(w, "Invalid token", http.StatusUnauthorized)
-            return
+            errorDiv.style.display = 'block';
+            console.error(message);
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
         }
 
-        claims, ok := token.Claims.(jwt.MapClaims)
-        if !ok || claims["sub"] == nil || claims["username"] == nil {
-            log.Println("Invalid token claims")
-            http.Error(w, "Invalid token", http.StatusUnauthorized)
-            return
-        }
-        userID := claims["sub"].(string)
-        username := claims["username"].(string)
-        ctx := context.WithValue(r.Context(), "user_id", userID)
-        ctx = context.WithValue(ctx, "username", username)
-        next.ServeHTTP(w, r.WithContext(ctx))
-    }
-}
-
-// Users handler
-func usersHandler(w http.ResponseWriter, r *http.Request) {
-    userID := r.Context().Value("user_id").(string)
-    username := r.Context().Value("username").(string)
-    log.Printf("Fetching users for authenticated user: %s (user_id: %s)", username, userID)
-
-    var rawUsers []map[string]interface{}
-    data, _, err := postgrestClient.From("users").Select("user_id, username", "exact", false).Execute()
-    if err != nil {
-        log.Printf("Error fetching users from Supabase: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    log.Printf("Raw response from Supabase: %s", string(data))
-
-    if err := json.Unmarshal(data, &rawUsers); err != nil {
-        log.Printf("Error unmarshaling users: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    log.Printf("Fetched %d users from Supabase", len(rawUsers))
-
-    users := make([]UserResponse, 0, len(rawUsers))
-    for _, rawUser := range rawUsers {
-        user := UserResponse{
-            UserID:   rawUser["user_id"].(string),
-            Username: rawUser["username"].(string),
-        }
-        users = append(users, user)
-    }
-
-    responseBytes, _ := json.Marshal(users)
-    log.Printf("Sending response: %s", string(responseBytes))
-
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(users)
-}
-
-// Messages handler
-func messagesHandler(w http.ResponseWriter, r *http.Request) {
-    chatID := r.URL.Query().Get("chat_id")
-    if chatID == "" {
-        log.Println("chat_id parameter missing in /messages request")
-        http.Error(w, "chat_id is required", http.StatusBadRequest)
-        return
-    }
-
-    var messages []Message
-    data, _, err := postgrestClient.From("messages").Select("*", "exact", false).Eq("chat_id", chatID).Execute()
-    if err != nil {
-        log.Printf("Error fetching messages for chat %s: %v", chatID, err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-    if err := json.Unmarshal(data, &messages); err != nil {
-        log.Printf("Error unmarshaling messages: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    json.NewEncoder(w).Encode(messages)
-}
-
-// Allowed chats handler
-func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
-    userID := r.Context().Value("user_id").(string)
-
-    var chats []Chat
-    query := postgrestClient.From("chats").Select("*", "exact", false)
-    query = query.Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID), "")
-    data, _, err := query.Execute()
-    if err != nil {
-        log.Printf("Error fetching allowed chats for user %s: %v", userID, err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-    if err := json.Unmarshal(data, &chats); err != nil {
-        log.Printf("Error unmarshaling chats: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    json.NewEncoder(w).Encode(chats)
-}
-
-// Upload handler for files
-func uploadHandler(w http.ResponseWriter, r *http.Request) {
-    userID := r.Context().Value("user_id").(string)
-
-    err := r.ParseMultipartForm(10 << 20) // 10 MB limit
-    if err != nil {
-        log.Printf("Error parsing multipart form: %v", err)
-        http.Error(w, "Unable to parse form", http.StatusBadRequest)
-        return
-    }
-
-    file, handler, err := r.FormFile("file")
-    if err != nil {
-        log.Printf("Error retrieving file from form: %v", err)
-        http.Error(w, "Unable to retrieve file", http.StatusBadRequest)
-        return
-    }
-    defer file.Close()
-
-    fileType := handler.Header.Get("Content-Type")
-    fileBytes, err := io.ReadAll(file)
-    if err != nil {
-        log.Printf("Error reading file: %v", err)
-        http.Error(w, "Unable to read file", http.StatusInternalServerError)
-        return
-    }
-
-    fileName := fmt.Sprintf("%s/%s", userID, handler.Filename)
-    _, err = storageClient.UploadFile("chat-files", fileName, bytes.NewReader(fileBytes))
-    if err != nil {
-        log.Printf("Error uploading file to Supabase: %v", err)
-        http.Error(w, "Unable to upload file", http.StatusInternalServerError)
-        return
-    }
-
-    signedURLResponse, err := storageClient.CreateSignedUrl("chat-files", fileName, 3600)
-    if err != nil {
-        log.Printf("Error generating signed URL: %v", err)
-        http.Error(w, "Unable to generate file URL", http.StatusInternalServerError)
-        return
-    }
-
-    signedURL := signedURLResponse.SignedURL
-    encryptedURL, err := encryptString(signedURL)
-    if err != nil {
-        log.Printf("Error encrypting file URL: %v", err)
-        http.Error(w, "Unable to process file URL", http.StatusInternalServerError)
-        return
-    }
-
-    response := map[string]string{
-        "file_url":  encryptedURL,
-        "file_type": fileType,
-    }
-    json.NewEncoder(w).Encode(response)
-}
-
-// File handler to serve files
-func fileHandler(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
-    encryptedPath := vars["path"]
-
-    signedURL, err := decryptString(encryptedPath)
-    if err != nil {
-        log.Printf("Error decrypting file URL: %v", err)
-        http.Error(w, "Invalid file URL", http.StatusBadRequest)
-        return
-    }
-
-    resp, err := http.Get(signedURL)
-    if err != nil || resp.StatusCode != http.StatusOK {
-        log.Printf("Error fetching file from Supabase: %v", err)
-        http.Error(w, "Unable to fetch file", http.StatusInternalServerError)
-        return
-    }
-    defer resp.Body.Close()
-
-    w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-    io.Copy(w, resp.Body)
-}
-
-// Register push token handler
-func registerPushHandler(w http.ResponseWriter, r *http.Request) {
-    userID := r.Context().Value("user_id").(string)
-
-    var pushReg PushRegistration
-    if err := json.NewDecoder(r.Body).Decode(&pushReg); err != nil {
-        log.Printf("Invalid request body for /register-push: %v", err)
-        http.Error(w, "Invalid request", http.StatusBadRequest)
-        return
-    }
-
-    if pushReg.Token == "" {
-        log.Println("Push token missing in /register-push request")
-        http.Error(w, "Push token is required", http.StatusBadRequest)
-        return
-    }
-
-    clientsMutex.Lock()
-    if client, exists := clients[userID]; exists {
-        client.PushToken = pushReg.Token
-    } else {
-        clients[userID] = &Client{PushToken: pushReg.Token}
-    }
-    clientsMutex.Unlock()
-
-    log.Printf("Push token registered for user %s", userID)
-    w.WriteHeader(http.StatusOK)
-}
-
-// WebSocket handler for real-time messaging and signaling
-func wsHandler(w http.ResponseWriter, r *http.Request) {
-    token := r.URL.Query().Get("token")
-    if token == "" {
-        log.Println("Token missing in WebSocket request")
-        http.Error(w, "Token is required", http.StatusUnauthorized)
-        return
-    }
-
-    // Validate token with Supabase
-    authURL := supabaseURL + "/auth/v1/user"
-    req, err := http.NewRequest("GET", authURL, nil)
-    if err != nil {
-        log.Printf("Error creating user request for token validation: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-    req.Header.Set("Authorization", "Bearer "+token)
-    req.Header.Set("apikey", supabaseServiceKey)
-
-    httpClient := &http.Client{}
-    resp, err := httpClient.Do(req)
-    if err != nil {
-        log.Printf("Error validating token with Supabase: %v", err)
-        http.Error(w, "Invalid token", http.StatusUnauthorized)
-        return
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        body, _ := io.ReadAll(resp.Body)
-        log.Printf("Error validating token: %s", string(body))
-        http.Error(w, "Invalid token", http.StatusUnauthorized)
-        return
-    }
-
-    var userResponse struct {
-        ID       string                 `json:"id"`
-        UserMeta map[string]interface{} `json:"user_metadata"`
-    }
-    if err := json.NewDecoder(resp.Body).Decode(&userResponse); err != nil {
-        log.Printf("Error decoding user response: %v", err)
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return
-    }
-
-    userID := userResponse.ID
-    if userID == "" {
-        log.Println("User ID not found in token response")
-        http.Error(w, "Invalid token", http.StatusUnauthorized)
-        return
-    }
-
-    // Upgrade to WebSocket
-    conn, err := upgrader.Upgrade(w, r, nil)
-    if err != nil {
-        log.Printf("Error upgrading to WebSocket: %v", err)
-        return
-    }
-
-    // Register client
-    clientsMutex.Lock()
-    wsClient := &Client{Conn: conn}
-    if existingClient, exists := clients[userID]; exists {
-        wsClient.PushToken = existingClient.PushToken
-    }
-    clients[userID] = wsClient
-    clientsMutex.Unlock()
-
-    log.Printf("WebSocket client connected: %s", userID)
-    defer func() {
-        clientsMutex.Lock()
-        delete(clients, userID)
-        clientsMutex.Unlock()
-        conn.Close()
-        log.Printf("WebSocket client disconnected: %s", userID)
-    }()
-
-    // Set up ping mechanism
-    pingTicker := time.NewTicker(30 * time.Second)
-    defer pingTicker.Stop()
-
-    go func() {
-        for range pingTicker.C {
-            clientsMutex.Lock()
-            if client, exists := clients[userID]; exists && client.Conn != nil {
-                err := client.Conn.WriteJSON(Message{Type: "ping", Timestamp: time.Now()})
-                if err != nil {
-                    log.Printf("Error sending ping to client %s: %v", userID, err)
-                    clientsMutex.Unlock()
-                    return
-                }
-            }
-            clientsMutex.Unlock()
-        }
-    }()
-
-    ctx := context.Background()
-
-    for {
-        var msg Message
-        err := conn.ReadJSON(&msg)
-        if err != nil {
-            if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-                log.Printf("WebSocket closed for user %s: code=%d, reason=%s", userID, websocket.CloseNormalClosure, err.Error())
-            } else {
-                log.Printf("Error reading WebSocket message for user %s: %v", userID, err)
-            }
-            break
+        function loadMessages() {
+            const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
+            savedMessages.forEach(msg => {
+                displayMessage(msg.content, msg.isSent, msg.type, msg.fileUrl);
+            });
         }
 
-        if msg.Type == "pong" {
-            log.Printf("Received pong from client %s", userID)
-            continue
-        }
+        function displayMessage(content, isSent = true, type = 'text', fileUrl = null) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message');
+            messageDiv.classList.add(isSent ? 'sent' : 'received');
 
-        msg.Timestamp = time.Now()
-        msg.Status = "sent"
+            const contentDiv = document.createElement('div');
+            contentDiv.classList.add('message-content');
 
-        switch msg.Type {
-        case "text", "file":
-            messageData := map[string]interface{}{
-                "chat_id":  fmt.Sprintf("%s:%s", msg.Sender, msg.Receiver),
-                "sender":   msg.Sender,
-                "receiver": msg.Receiver,
-                "content":  msg.Content,
-                "file_url": msg.FileURL,
-                "file_type": msg.FileType,
-                "type":     msg.Type,
-                "timestamp": msg.Timestamp,
-                "status":   msg.Status,
-            }
-            var result []map[string]interface{}
-            data, _, err := postgrestClient.From("messages").Insert(messageData, false, "", "representation", "exact").Execute()
-            if err != nil {
-                log.Printf("Error saving message to Supabase: %v", err)
-                continue
-            }
-            if err := json.Unmarshal(data, &result); err != nil {
-                log.Printf("Error unmarshaling insert result: %v", err)
-                continue
-            }
-
-            clientsMutex.Lock()
-            if receiverClient, exists := clients[msg.Receiver]; exists && receiverClient.Conn != nil {
-                err = receiverClient.Conn.WriteJSON(msg)
-                if err != nil {
-                    log.Printf("Error sending message to receiver %s: %v", msg.Receiver, err)
+            if (type === 'text') {
+                contentDiv.innerText = content;
+            } else if (type === 'file') {
+                if (fileUrl && fileUrl.startsWith('data:image/')) {
+                    const img = document.createElement('img');
+                    img.src = fileUrl;
+                    contentDiv.appendChild(img);
                 } else {
-                    msg.Status = "delivered"
-                    _, _, err = postgrestClient.From("messages").Update(map[string]interface{}{"status": "delivered"}, "", "exact").Eq("id", result[0]["id"].(string)).Execute()
-                    if err != nil {
-                        log.Printf("Error updating message status: %v", err)
-                    }
-                }
-            } else {
-                if fcmEnabled {
-                    clientsMutex.Lock()
-                    if receiverClient != nil && receiverClient.PushToken != "" {
-                        message := &messaging.Message{
-                            Notification: &messaging.Notification{
-                                Title: "New Message",
-                                Body:  fmt.Sprintf("You have a new message from %s", msg.Sender),
-                            },
-                            Token: receiverClient.PushToken,
-                        }
-                        _, err := fcmClient.Send(ctx, message)
-                        if err != nil {
-                            log.Printf("Error sending push notification to %s: %v", msg.Receiver, err)
-                        }
-                    }
-                    clientsMutex.Unlock()
+                    const link = document.createElement('a');
+                    link.href = fileUrl;
+                    link.innerText = 'Download File';
+                    link.download = '';
+                    contentDiv.appendChild(link);
                 }
             }
-            clientsMutex.Unlock()
 
-        case "call_signal":
-            clientsMutex.Lock()
-            if receiverClient, exists := clients[msg.Receiver]; exists && receiverClient.Conn != nil {
-                err = receiverClient.Conn.WriteJSON(msg)
-                if err != nil {
-                    log.Printf("Error sending call signal to receiver %s: %v", msg.Receiver, err)
-                }
+            messageDiv.appendChild(contentDiv);
+            chatArea.appendChild(messageDiv);
+            chatArea.scrollTop = chatArea.scrollHeight;
+
+            const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
+            savedMessages.push({ content, isSent, type, fileUrl, timestamp: new Date().toISOString() });
+            localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
+        }
+
+        function initializeWebSocket(wsUrlOverride = null) {
+            if (!checkLogin()) return;
+
+            const wsUrl = wsUrlOverride || 'wss://chat-backend-gxh8.onrender.com/ws';
+            const token = localStorage.getItem('access_token');
+            if (!token) {
+                showError('No authentication token found. Redirecting to login...');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 2000);
+                return;
             }
-            clientsMutex.Unlock()
 
-            if msg.Signal.Type == "call-initiate" {
-                callData := map[string]interface{}{
-                    "caller":     msg.Sender,
-                    "callee":     msg.Receiver,
-                    "call_type":  msg.Signal.CallType,
-                    "start_time": time.Now(),
-                    "status":     "initiated",
-                }
-                _, _, err = postgrestClient.From("calls").Insert(callData, false, "", "representation", "exact").Execute()
-                if err != nil {
-                    log.Printf("Error logging call to Supabase: %v", err)
-                }
-            } else if msg.Signal.Type == "call-accept" || msg.Signal.Type == "call-reject" {
-                _, _, err = postgrestClient.From("calls").Update(map[string]interface{}{
-                    "status":    msg.Signal.CallStatus,
-                    "end_time":  time.Now(),
-                }, "", "exact").Eq("caller", msg.Sender).Eq("callee", msg.Receiver).Execute()
-                if err != nil {
-                    log.Printf("Error updating call status: %v", err)
-                }
+            const urlWithToken = `${wsUrl}?token=${encodeURIComponent(token)}`;
+            console.log('Connecting to WebSocket:', urlWithToken);
+            try {
+                ws = new WebSocket(urlWithToken);
+                ws.onopen = () => {
+                    console.log('WebSocket connected to', urlWithToken);
+                    showError('WebSocket connected successfully', false);
+                    reconnectAttempts = 0; // Reset reconnect attempts
+                    reconnectDelay = 1000; // Reset delay
+                };
+                ws.onmessage = (event) => {
+                    const msg = JSON.parse(event.data);
+                    console.log('WebSocket message received:', msg);
+                    if (msg.type === 'text') {
+                        displayMessage(msg.content, false, 'text');
+                    } else if (msg.type === 'file') {
+                        displayMessage(null, false, 'file', msg.file_url);
+                    } else if (msg.type === 'call_signal') {
+                        handleCallSignal(msg);
+                    } else if (msg.type === 'ping') {
+                        console.log('Received ping from server');
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
+                            console.log('Sent pong to server');
+                        }
+                    }
+                };
+                ws.onclose = (event) => {
+                    console.log('WebSocket disconnected:', event);
+                    console.log('Close code:', event.code, 'Reason:', event.reason);
+                    showError(`WebSocket connection closed (Code: ${event.code}, Reason: ${event.reason || 'Unknown'}). Reconnecting...`, true);
+                    ws = null;
+                    attemptReconnect(wsUrl);
+                };
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    showError('WebSocket error occurred. Reconnecting...', true);
+                    ws = null;
+                    attemptReconnect(wsUrl);
+                };
+            } catch (error) {
+                showError('Error initializing WebSocket: ' + error.message, true);
+                ws = null;
+                attemptReconnect(wsUrl);
             }
         }
-    }
-}
+
+        function attemptReconnect(wsUrl) {
+            if (reconnectAttempts >= maxReconnectAttempts) {
+                showError('Max reconnection attempts reached. Please retry manually.', true);
+                return;
+            }
+            reconnectAttempts++;
+            setTimeout(() => {
+                console.log(`Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts}`);
+                initializeWebSocket(wsUrl);
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000); // Exponential backoff, max 30 seconds
+            }, reconnectDelay);
+        }
+
+        sendButton.addEventListener('click', () => {
+            if (!checkLogin()) return;
+
+            const content = messageInput.value.trim();
+            if (!content) return;
+            displayMessage(content, true);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'text', content, sender: localStorage.getItem('user_id') }));
+            } else {
+                showError('WebSocket is not connected. Cannot send message.', true);
+            }
+            messageInput.value = '';
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (!checkLogin()) return;
+
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                const fileUrl = reader.result;
+                displayMessage(null, true, 'file', fileUrl);
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'file', file_url: fileUrl, sender: localStorage.getItem('user_id') }));
+                } else {
+                    showError('WebSocket is not connected. Cannot send file.', true);
+                }
+            };
+            reader.readAsDataURL(file);
+            fileInput.value = '';
+        });
+
+        const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        async function startCall(callType) {
+            if (!checkLogin()) return;
+
+            try {
+                peerConnection = new RTCPeerConnection(servers);
+                const constraints = callType === 'video' ? { video: true, audio: true } : { audio: true };
+                localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                localVideo.srcObject = localStream;
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                peerConnection.ontrack = (event) => {
+                    remoteVideo.srcObject = event.streams[0];
+                };
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'call_signal',
+                            signal: { type: 'ice-candidate', candidate: event.candidate }
+                        }));
+                    }
+                };
+                peerConnection.onconnectionstatechange = () => {
+                    if (peerConnection.connectionState === 'connected') {
+                        callStatus.innerText = 'Connected';
+                        callStatus.style.color = '#44ff44';
+                        callStatus.style.display = 'block';
+                    } else if (peerConnection.connectionState === 'disconnected') {
+                        endCall();
+                    }
+                };
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'call_signal',
+                        signal: { type: 'call-initiate', offer: offer, call_type: callType }
+                    }));
+                } else {
+                    showError('WebSocket is not connected. Cannot start call.', true);
+                }
+
+                videoCallArea.style.display = 'flex';
+                callStatus.innerText = 'Calling...';
+                callStatus.style.display = 'block';
+                if (callType === 'audio') {
+                    localVideo.style.display = 'none';
+                    remoteVideo.style.display = 'none';
+                }
+            } catch (error) {
+                showError('Failed to start call: ' + error.message);
+            }
+        }
+
+        async function handleCallSignal(msg) {
+            if (!checkLogin()) return;
+
+            try {
+                if (!peerConnection) {
+                    peerConnection = new RTCPeerConnection(servers);
+                    const constraints = msg.signal.call_type === 'video' ? { video: true, audio: true } : { audio: true };
+                    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    localVideo.srcObject = localStream;
+                    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                    peerConnection.ontrack = (event) => {
+                        remoteVideo.srcObject = event.streams[0];
+                    };
+                    peerConnection.onicecandidate = (event) => {
+                        if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'call_signal',
+                                signal: { type: 'ice-candidate', candidate: event.candidate }
+                            }));
+                        }
+                    };
+                    peerConnection.onconnectionstatechange = () => {
+                        if (peerConnection.connectionState === 'connected') {
+                            callStatus.innerText = 'Connected';
+                            callStatus.style.color = '#44ff44';
+                            callStatus.style.display = 'block';
+                        } else if (peerConnection.connectionState === 'disconnected') {
+                            endCall();
+                        }
+                    };
+                }
+
+                if (msg.signal.type === 'call-initiate') {
+                    if (confirm(`Incoming ${msg.signal.call_type} call. Accept?`)) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.signal.offer));
+                        const answer = await peerConnection.createAnswer();
+                        await peerConnection.setLocalDescription(answer);
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'call_signal',
+                                signal: { type: 'call-accept', answer: answer, call_status: 'accepted' }
+                            }));
+                        }
+                        videoCallArea.style.display = 'flex';
+                        callStatus.innerText = 'Connecting...';
+                        callStatus.style.display = 'block';
+                        if (msg.signal.call_type === 'audio') {
+                            localVideo.style.display = 'none';
+                            remoteVideo.style.display = 'none';
+                        }
+                    } else {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'call_signal',
+                                signal: { type: 'call-reject', call_status: 'rejected' }
+                            }));
+                        }
+                    }
+                } else if (msg.signal.type === 'call-accept') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.signal.answer));
+                } else if (msg.signal.type === 'ice-candidate') {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(msg.signal.candidate));
+                } else if (msg.signal.type === 'call-reject') {
+                    callStatus.innerText = 'Call rejected';
+                    endCall();
+                }
+            } catch (error) {
+                showError('Failed to handle call signal: ' + error.message);
+            }
+        }
+
+        function endCall() {
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            localVideo.srcObject = null;
+            remoteVideo.srcObject = null;
+            videoCallArea.style.display = 'none';
+            callStatus.innerText = '';
+            callStatus.style.display = 'none';
+            localVideo.style.display = 'block';
+            remoteVideo.style.display = 'block';
+        }
+
+        videoCallButton.addEventListener('click', () => startCall('video'));
+        audioCallButton.addEventListener('click', () => startCall('audio'));
+        endCallButton.addEventListener('click', endCall);
+
+        // بارگذاری اولیه
+        if (checkLogin()) {
+            loadMessages();
+            initializeWebSocket();
+        }
+    </script>
+</body>
+</html>
+
+
