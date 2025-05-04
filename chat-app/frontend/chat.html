@@ -256,10 +256,11 @@
         // بررسی ورود
         function checkLogin() {
             const token = localStorage.getItem('access_token');
-            console.log('Checking login, token:', token); // دیباگ
-            if (!token) {
-                console.log('No token found, redirecting to login.html');
-                showError('No token found. Redirecting to login...');
+            const userId = localStorage.getItem('user_id');
+            console.log('Checking login, token:', token, 'user_id:', userId); // دیباگ
+            if (!token || !userId) {
+                console.log('Token or user_id missing, redirecting to login.html');
+                showError('Authentication required. Redirecting to login...');
                 setTimeout(() => {
                     window.location.href = 'login.html';
                 }, 2000);
