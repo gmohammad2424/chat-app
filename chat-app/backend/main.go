@@ -16,6 +16,8 @@ import (
     "strings"
     "sync"
     "time"
+    "path/filepath"
+    "regexp"
 
     "firebase.google.com/go/v4"
     "firebase.google.com/go/v4/messaging"
@@ -666,6 +668,24 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(chats)
 }
 
+// Sanitize file name to remove invalid characters
+func sanitizeFileName(filename string) string {
+    // Remove invalid characters (e.g., /, \, :, etc.)
+    reg, err := regexp.Compile("[^a-zA-Z0-9._-]")
+    if err != nil {
+        log.Printf("Error compiling regex for sanitizing filename: %v", err)
+        return filename
+    }
+    sanitized := reg.ReplaceAllString(filename, "_")
+    // Limit length to avoid issues with long filenames
+    if len(sanitized) > 100 {
+        ext := filepath.Ext(sanitized)
+        base := sanitized[:100-len(ext)]
+        sanitized = base + ext
+    }
+    return sanitized
+}
+
 // Upload handler for files
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
     userID := r.Context().Value("user_id").(string)
@@ -673,14 +693,20 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     err := r.ParseMultipartForm(10 << 20) // 10 MB limit
     if err != nil {
         log.Printf("Error parsing multipart form: %v", err)
-        http.Error(w, "Unable to parse form", http.StatusBadRequest)
+        errorResponse := map[string]string{"error": "Unable to parse form"}
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusBadRequest)
+        json.NewEncoder(w).Encode(errorResponse)
         return
     }
 
     file, handler, err := r.FormFile("file")
     if err != nil {
         log.Printf("Error retrieving file from form: %v", err)
-        http.Error(w, "Unable to retrieve file", http.StatusBadRequest)
+        errorResponse := map[string]string{"error": "Unable to retrieve file"}
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusBadRequest)
+        json.NewEncoder(w).Encode(errorResponse)
         return
     }
     defer file.Close()
@@ -689,22 +715,36 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     fileBytes, err := io.ReadAll(file)
     if err != nil {
         log.Printf("Error reading file: %v", err)
-        http.Error(w, "Unable to read file", http.StatusInternalServerError)
+        errorResponse := map[string]string{"error": "Unable to read file"}
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(errorResponse)
         return
     }
 
-    fileName := fmt.Sprintf("%s/%s", userID, handler.Filename)
+    // Generate a more descriptive file name: userID/timestamp_originalfilename
+    timestamp := time.Now().Format("20060102-150405") // YYYYMMDD-HHMMSS
+    originalFileName := sanitizeFileName(handler.Filename)
+    fileName := fmt.Sprintf("%s/%s_%s", userID, timestamp, originalFileName)
+    log.Printf("Uploading file to chat-files bucket: %s", fileName)
+
     _, err = storageClient.UploadFile("chat-files", fileName, bytes.NewReader(fileBytes))
     if err != nil {
         log.Printf("Error uploading file to Supabase: %v", err)
-        http.Error(w, "Unable to upload file", http.StatusInternalServerError)
+        errorResponse := map[string]string{"error": "Unable to upload file to storage"}
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(errorResponse)
         return
     }
 
     signedURLResponse, err := storageClient.CreateSignedUrl("chat-files", fileName, 3600)
     if err != nil {
         log.Printf("Error generating signed URL: %v", err)
-        http.Error(w, "Unable to generate file URL", http.StatusInternalServerError)
+        errorResponse := map[string]string{"error": "Unable to generate file URL"}
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(errorResponse)
         return
     }
 
@@ -712,7 +752,10 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
     encryptedURL, err := encryptString(signedURL)
     if err != nil {
         log.Printf("Error encrypting file URL: %v", err)
-        http.Error(w, "Unable to process file URL", http.StatusInternalServerError)
+        errorResponse := map[string]string{"error": "Unable to process file URL"}
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(errorResponse)
         return
     }
 
@@ -720,6 +763,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
         "file_url":  encryptedURL,
         "file_type": fileType,
     }
+    w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(response)
 }
 
@@ -903,15 +947,29 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 "receiver": msg.Receiver,
                 "content":  msg.Content,
                 "file_url": msg.FileURL,
-                "file_type": msg.FileType,
                 "type":     msg.Type,
                 "timestamp": msg.Timestamp,
                 "status":   msg.Status,
             }
+            // Only include file_type if it's present and non-empty
+            if msg.FileType != "" {
+                messageData["file_type"] = msg.FileType
+            }
+
             var result []map[string]interface{}
             data, _, err := postgrestClient.From("messages").Insert(messageData, false, "", "representation", "exact").Execute()
             if err != nil {
                 log.Printf("Error saving message to Supabase: %v", err)
+                // Notify the sender of the failure
+                if senderClient, exists := clients[msg.Sender]; exists && senderClient.Conn != nil {
+                    err = senderClient.Conn.WriteJSON(map[string]interface{}{
+                        "type":  "error",
+                        "error": "Failed to save message to database",
+                    })
+                    if err != nil {
+                        log.Printf("Error notifying sender %s of message save failure: %v", msg.Sender, err)
+                    }
+                }
                 continue
             }
             if err := json.Unmarshal(data, &result); err != nil {
