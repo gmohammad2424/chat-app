@@ -824,8 +824,38 @@ func registerPushHandler(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
 }
 
+// Helper function to check if a user exists in the users table
+func userExists(userID string) (bool, error) {
+    var users []map[string]interface{}
+    data, _, err := postgrestClient.From("users").Select("user_id", "exact", false).Eq("user_id", userID).Execute()
+    if err != nil {
+        return false, fmt.Errorf("error checking user existence: %v", err)
+    }
+    if err := json.Unmarshal(data, &users); err != nil {
+        return false, fmt.Errorf("error unmarshaling users: %v", err)
+    }
+    return len(users) > 0, nil
+}
+
 // Helper function to get or create a chat ID based on sender and receiver
 func getOrCreateChatID(sender, receiver string) (int, error) {
+    // Check if both sender and receiver exist in the users table
+    senderExists, err := userExists(sender)
+    if err != nil {
+        return 0, fmt.Errorf("error checking sender %s: %v", sender, err)
+    }
+    if !senderExists {
+        return 0, fmt.Errorf("sender %s does not exist in users table", sender)
+    }
+
+    receiverExists, err := userExists(receiver)
+    if err != nil {
+        return 0, fmt.Errorf("error checking receiver %s: %v", receiver, err)
+    }
+    if !receiverExists {
+        return 0, fmt.Errorf("receiver %s does not exist in users table", receiver)
+    }
+
     // Sort the participants to ensure consistency (e.g., always "smaller" UUID first)
     participants := []string{sender, receiver}
     sort.Strings(participants)
@@ -1016,7 +1046,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
                 if senderClient, exists := clients[msg.Sender]; exists && senderClient.Conn != nil {
                     err = senderClient.Conn.WriteJSON(map[string]interface{}{
                         "type":  "error",
-                        "error": "Failed to get or create chat",
+                        "error": fmt.Sprintf("Failed to get or create chat: %v", err),
                     })
                     if err != nil {
                         log.Printf("Error notifying sender %s of chat creation failure: %v", msg.Sender, err)
