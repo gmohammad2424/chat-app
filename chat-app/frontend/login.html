@@ -7,113 +7,112 @@
     <style>
         body {
             background-color: #1c2526;
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
         }
-        .login-container {
+        .container {
             background-color: #d3d3d3;
+            padding: 40px;
             border-radius: 10px;
             width: 100%;
             max-width: 400px;
-            padding: 20px;
+            text-align: center;
             box-shadow: -5px 5px 10px rgba(0, 0, 0, 0.3);
         }
-        .login-container h2 {
-            text-align: center;
-            color: #333;
+        h1 {
+            font-size: 2rem;
             margin-bottom: 20px;
+            color: #333;
+            font-weight: bold;
         }
-        .login-form input {
+        input[type="text"], input[type="password"] {
             width: 100%;
             padding: 10px;
             margin: 10px 0;
             border: none;
             border-radius: 5px;
+            background-color: #fff;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            font-size: 1rem;
+            color: #333;
         }
-        .login-form button {
+        input[type="text"]::placeholder, input[type="password"]::placeholder {
+            color: #666;
+        }
+        button {
             width: 100%;
             padding: 10px;
             background-color: #333;
             color: white;
+            font-size: 1rem;
             border: none;
             border-radius: 5px;
             cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.5), 0 0 10px rgba(255, 0, 255, 0.5);
             transition: background-color 0.3s;
         }
-        .login-form button:hover {
+        button:hover {
             background-color: #444;
         }
         #error {
             color: #ff4444;
-            text-align: center;
             margin-top: 10px;
             display: none;
         }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <h2>Login</h2>
-        <form class="login-form" id="login-form">
-            <input type="text" id="username" placeholder="Username" required>
-            <input type="password" id="password" placeholder="Password" required>
-            <button type="submit">Login</button>
-        </form>
+    <div class="container">
+        <h1>Login</h1>
+        <input type="text" id="username" placeholder="Username" />
+        <input type="password" id="password" placeholder="Password" />
+        <button id="login-button">Login</button>
         <div id="error"></div>
     </div>
 
     <script>
-        const loginForm = document.getElementById('login-form');
+        const loginButton = document.getElementById('login-button');
         const errorDiv = document.getElementById('error');
 
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
+        loginButton.addEventListener('click', async () => {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+
+            if (!username || !password) {
+                errorDiv.innerText = 'Please fill in all fields';
+                errorDiv.style.display = 'block';
+                return;
+            }
 
             try {
-                const response = await fetch('https://vridcilbrgyrxxmnjcqq.supabase.co/auth/v1/token?grant_type=password', {
+                const response = await fetch('https://chat-backend-gxh8.onrender.com/login', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZyaWRjaWxicmd5cnh4bW5qY3FxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mjg5Nzg5MDYsImV4cCI6MjA0NDU1NDkwNn0.-2kswLszvH7zZSGqP4q0SJRq2YhWouG0BajL1fYAIgM',
-                    },
-                    body: JSON.stringify({
-                        email: username, // Supabase معمولاً از email استفاده می‌کنه
-                        password: password,
-                    }),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
                 });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Login failed: ${response.status} ${errorText}`);
+                }
 
                 const data = await response.json();
                 console.log('Login response:', data); // دیباگ
-
-                if (response.ok) {
-                    localStorage.setItem('access_token', data.access_token);
-                    localStorage.setItem('user_id', data.user.id);
-                    console.log('Token stored:', data.access_token); // دیباگ
-                    window.location.href = 'chat.html';
-                } else {
-                    showError('Login failed: ' + (data.error_description || 'Invalid credentials'));
-                }
+                localStorage.setItem('access_token', data.token); // تغییر کلید از token به access_token
+                localStorage.setItem('user_id', data.user_id);
+                console.log('Token stored:', data.token); // دیباگ
+                console.log('User ID stored:', data.user_id); // دیباگ
+                window.location.href = 'chat.html';
             } catch (error) {
-                showError('Error during login: ' + error.message);
+                errorDiv.innerText = error.message;
+                errorDiv.style.display = 'block';
+                console.error(error);
             }
         });
-
-        function showError(message) {
-            errorDiv.innerText = message;
-            errorDiv.style.display = 'block';
-            console.error(message);
-            setTimeout(() => {
-                errorDiv.style.display = 'none';
-            }, 5000);
-        }
     </script>
 </body>
 </html>
