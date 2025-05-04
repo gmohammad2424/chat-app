@@ -18,6 +18,7 @@ import (
     "time"
     "path/filepath"
     "regexp"
+    "sort"
 
     "firebase.google.com/go/v4"
     "firebase.google.com/go/v4/messaging"
@@ -60,7 +61,7 @@ type Client struct {
 
 // Chat struct to match the chats table schema
 type Chat struct {
-    ID           string `json:"id"`
+    ID           int    `json:"id"`           // Changed to int to match database schema
     Participant1 string `json:"participant1"` // UUID
     Participant2 string `json:"participant2"` // UUID
 }
@@ -430,7 +431,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     log.Printf("User signed up successfully: %s (user_id: %s)", user.Username, authUser.ID.String())
     json.NewEncoder(w).Encode(map[string]string{
         "token":   authResponse.AccessToken,
-        "chat_id": authUser.ID.String() + ":",
+        "chat_id": authUser.ID.String() + ":", // This will need to be updated to use integer chat IDs
     })
 }
 
@@ -542,7 +543,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     log.Printf("Login successful for user: %s (user_id: %s)", creds.Username, userID)
     json.NewEncoder(w).Encode(map[string]string{
         "token":   authResponse.AccessToken,
-        "chat_id": userID + ":",
+        "chat_id": userID + ":", // This will need to be updated to use integer chat IDs
     })
 }
 
@@ -823,6 +824,56 @@ func registerPushHandler(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
 }
 
+// Helper function to get or create a chat ID based on sender and receiver
+func getOrCreateChatID(sender, receiver string) (int, error) {
+    // Sort the participants to ensure consistency (e.g., always "smaller" UUID first)
+    participants := []string{sender, receiver}
+    sort.Strings(participants)
+    participant1, participant2 := participants[0], participants[1]
+
+    // Check if a chat already exists between these two users
+    var chats []Chat
+    query := postgrestClient.From("chats").Select("id", "exact", false)
+    query = query.Eq("participant1", participant1).Eq("participant2", participant2)
+    data, _, err := query.Execute()
+    if err != nil {
+        return 0, fmt.Errorf("error checking for existing chat: %v", err)
+    }
+
+    if err := json.Unmarshal(data, &chats); err != nil {
+        return 0, fmt.Errorf("error unmarshaling chats: %v", err)
+    }
+
+    if len(chats) > 0 {
+        return chats[0].ID, nil
+    }
+
+    // If no chat exists, create one
+    newChat := map[string]interface{}{
+        "participant1": participant1,
+        "participant2": participant2,
+    }
+    var result []map[string]interface{}
+    data, _, err = postgrestClient.From("chats").Insert(newChat, false, "", "representation", "exact").Execute()
+    if err != nil {
+        return 0, fmt.Errorf("error creating new chat: %v", err)
+    }
+    if err := json.Unmarshal(data, &result); err != nil {
+        return 0, fmt.Errorf("error unmarshaling new chat result: %v", err)
+    }
+
+    if len(result) == 0 {
+        return 0, fmt.Errorf("no chat ID returned after insertion")
+    }
+
+    chatID, ok := result[0]["id"].(float64) // JSON numbers are unmarshaled as float64
+    if !ok {
+        return 0, fmt.Errorf("invalid chat ID format in response")
+    }
+
+    return int(chatID), nil
+}
+
 // WebSocket handler for real-time messaging and signaling
 func wsHandler(w http.ResponseWriter, r *http.Request) {
     token := r.URL.Query().Get("token")
@@ -957,8 +1008,25 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
         switch msg.Type {
         case "text", "file":
+            // Get or create the chat ID
+            chatID, err := getOrCreateChatID(msg.Sender, msg.Receiver)
+            if err != nil {
+                log.Printf("Error getting or creating chat ID for sender %s and receiver %s: %v", msg.Sender, msg.Receiver, err)
+                // Notify the sender of the failure
+                if senderClient, exists := clients[msg.Sender]; exists && senderClient.Conn != nil {
+                    err = senderClient.Conn.WriteJSON(map[string]interface{}{
+                        "type":  "error",
+                        "error": "Failed to get or create chat",
+                    })
+                    if err != nil {
+                        log.Printf("Error notifying sender %s of chat creation failure: %v", msg.Sender, err)
+                    }
+                }
+                continue
+            }
+
             messageData := map[string]interface{}{
-                "chat_id":  fmt.Sprintf("%s:%s", msg.Sender, msg.Receiver),
+                "chat_id":  chatID, // Now an integer
                 "sender":   msg.Sender,
                 "receiver": msg.Receiver,
                 "content":  msg.Content,
@@ -973,9 +1041,12 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             }
 
             var result []map[string]interface{}
-            data, _, err := postgrestClient.From("messages").Insert(messageData, false, "", "representation", "exact").Execute()
+            data, count, err := postgrestClient.From("messages").Insert(messageData, false, "", "representation", "exact").Execute()
             if err != nil {
                 log.Printf("Error saving message to Supabase: %v", err)
+                log.Printf("Attempted message data: %v", messageData)
+                log.Printf("Response data (if any): %s", string(data))
+                log.Printf("Response count: %d", count)
                 // Notify the sender of the failure
                 if senderClient, exists := clients[msg.Sender]; exists && senderClient.Conn != nil {
                     err = senderClient.Conn.WriteJSON(map[string]interface{}{
