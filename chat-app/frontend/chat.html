@@ -485,7 +485,7 @@
             if (!content) return;
             displayMessage(content, true);
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'text', content, sender: localStorage.getItem('user_id'), receiver: '550e8400-e29b-41d4-a716-446655440000' }));
+                ws.send(JSON.stringify({ type: 'text', content, sender: localStorage.getItem('user_id'), receiver: '' }));
             } else {
                 showError('WebSocket is not connected. Cannot send message.', true);
             }
@@ -503,7 +503,7 @@
                 const fileUrl = reader.result;
                 displayMessage(null, true, 'file', fileUrl);
                 if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'file', file_url: fileUrl, sender: localStorage.getItem('user_id'), receiver: '550e8400-e29b-41d4-a716-446655440000' }));
+                    ws.send(JSON.stringify({ type: 'file', file_url: fileUrl, sender: localStorage.getItem('user_id'), receiver: '  ' }));
                 } else {
                     showError('WebSocket is not connected. Cannot send file.', true);
                 }
