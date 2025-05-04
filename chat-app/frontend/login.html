@@ -101,11 +101,11 @@
                 }
 
                 const data = await response.json();
-                console.log('Login response:', data); // دیباگ
-                localStorage.setItem('access_token', data.token); // تغییر کلید از token به access_token
-                localStorage.setItem('user_id', data.user_id);
-                console.log('Token stored:', data.token); // دیباگ
-                console.log('User ID stored:', data.user_id); // دیباگ
+                console.log('Login response:', data);
+                localStorage.setItem('access_token', data.token);
+                localStorage.setItem('user_id', data.chat_id.split(':')[0]); // استخراج user_id از chat_id
+                console.log('Token stored:', data.token);
+                console.log('User ID stored:', data.chat_id.split(':')[0]);
                 window.location.href = 'chat.html';
             } catch (error) {
                 errorDiv.innerText = error.message;
