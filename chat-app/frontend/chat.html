@@ -259,7 +259,10 @@
             console.log('Checking login, token:', token); // دیباگ
             if (!token) {
                 console.log('No token found, redirecting to login.html');
-                window.location.href = 'login.html';
+                showError('No token found. Redirecting to login...');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 2000);
                 return false;
             }
             return true;
@@ -329,8 +332,10 @@
             const wsUrl = wsUrlOverride || 'wss://chat-backend-gxh8.onrender.com/ws';
             const token = localStorage.getItem('access_token');
             if (!token) {
-                showError('No authentication token found. Redirecting to login...', false);
-                window.location.href = 'login.html';
+                showError('No authentication token found. Redirecting to login...');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 2000);
                 return;
             }
 
