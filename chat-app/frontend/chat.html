@@ -268,16 +268,14 @@
         let localStream = null;
         let reconnectAttempts = 0;
         let maxReconnectAttempts = 5;
-        let reconnectDelay = 2000; // Increased initial delay to 2 seconds
-        let isConnecting = false; // Flag to prevent multiple WebSocket instances
-        const maxMessagesToLoad = 50; // Limit the number of messages to load
+        let reconnectDelay = 2000;
+        let isConnecting = false;
+        const maxMessagesToLoad = 50;
 
-        // Show loading indicator
         function showLoading(show) {
             loadingDiv.style.display = show ? 'block' : 'none';
         }
 
-        // Check login status
         function checkLogin() {
             const token = localStorage.getItem('access_token');
             const userId = localStorage.getItem('user_id');
@@ -293,7 +291,6 @@
             return true;
         }
 
-        // Show error message
         function showError(message, showRetry = false) {
             errorDiv.innerHTML = message;
             if (showRetry) {
@@ -301,8 +298,8 @@
                 retryButton.innerText = 'Retry Connection';
                 retryButton.addEventListener('click', () => {
                     errorDiv.style.display = 'none';
-                    reconnectAttempts = 0; // Reset attempts on manual retry
-                    reconnectDelay = 2000; // Reset delay
+                    reconnectAttempts = 0;
+                    reconnectDelay = 2000;
                     initializeWebSocket();
                 });
                 errorDiv.appendChild(retryButton);
@@ -314,29 +311,25 @@
             }, 5000);
         }
 
-        // Load messages from localStorage with a limit
         function loadMessages() {
             try {
                 let savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
-                // Limit the number of messages to load
                 if (savedMessages.length > maxMessagesToLoad) {
-                    savedMessages = savedMessages.slice(-maxMessagesToLoad); // Keep only the last 50 messages
-                    localStorage.setItem('chatMessages', JSON.stringify(savedMessages)); // Update localStorage
+                    savedMessages = savedMessages.slice(-maxMessagesToLoad);
+                    localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
                 }
                 savedMessages.forEach((msg, index) => {
-                    // Throttle rendering to prevent browser overload
                     setTimeout(() => {
                         displayMessage(msg.content, msg.isSent, msg.type, msg.fileUrl);
-                    }, index * 50); // 50ms delay between each message render
+                    }, index * 50);
                 });
             } catch (error) {
                 console.error('Error loading messages:', error);
                 showError('Failed to load messages: ' + error.message);
-                localStorage.setItem('chatMessages', '[]'); // Reset on error
+                localStorage.setItem('chatMessages', '[]');
             }
         }
 
-        // Display a single message in the chat area
         function displayMessage(content, isSent = true, type = 'text', fileUrl = null) {
             try {
                 const messageDiv = document.createElement('div');
@@ -366,12 +359,10 @@
                 chatArea.appendChild(messageDiv);
                 chatArea.scrollTop = chatArea.scrollHeight;
 
-                // Update localStorage
                 const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
                 savedMessages.push({ content, isSent, type, fileUrl, timestamp: new Date().toISOString() });
-                // Keep only the last 50 messages in localStorage
                 if (savedMessages.length > maxMessagesToLoad) {
-                    savedMessages.shift(); // Remove the oldest message
+                    savedMessages.shift();
                 }
                 localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
             } catch (error) {
@@ -380,7 +371,6 @@
             }
         }
 
-        // Initialize WebSocket connection
         function initializeWebSocket(wsUrlOverride = null) {
             if (!checkLogin()) return;
             if (isConnecting) {
@@ -434,6 +424,9 @@
                                 ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
                                 console.log('Sent pong to server');
                             }
+                        } else if (msg.type === 'error') {
+                            console.error('Server error:', msg.error);
+                            showError('Server error: ' + msg.error);
                         }
                     } catch (error) {
                         console.error('Error processing WebSocket message:', error);
@@ -466,7 +459,6 @@
             }
         }
 
-        // Reconnect with exponential backoff
         function attemptReconnect(wsUrl) {
             if (reconnectAttempts >= maxReconnectAttempts) {
                 showError('Max reconnection attempts reached. Please retry manually.', true);
@@ -482,11 +474,10 @@
                 if (!ws || ws.readyState !== WebSocket.OPEN) {
                     initializeWebSocket(wsUrl);
                 }
-                reconnectDelay = Math.min(reconnectDelay * 2, 30000); // Exponential backoff, max 30 seconds
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000);
             }, reconnectDelay);
         }
 
-        // Send message
         sendButton.addEventListener('click', () => {
             if (!checkLogin()) return;
 
@@ -494,14 +485,13 @@
             if (!content) return;
             displayMessage(content, true);
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'text', content, sender: localStorage.getItem('user_id') }));
+                ws.send(JSON.stringify({ type: 'text', content, sender: localStorage.getItem('user_id'), receiver: '550e8400-e29b-41d4-a716-446655440000' }));
             } else {
                 showError('WebSocket is not connected. Cannot send message.', true);
             }
             messageInput.value = '';
         });
 
-        // Send file
         fileInput.addEventListener('change', () => {
             if (!checkLogin()) return;
 
@@ -513,7 +503,7 @@
                 const fileUrl = reader.result;
                 displayMessage(null, true, 'file', fileUrl);
                 if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'file', file_url: fileUrl, sender: localStorage.getItem('user_id') }));
+                    ws.send(JSON.stringify({ type: 'file', file_url: fileUrl, sender: localStorage.getItem('user_id'), receiver: '550e8400-e29b-41d4-a716-446655440000' }));
                 } else {
                     showError('WebSocket is not connected. Cannot send file.', true);
                 }
@@ -528,13 +518,12 @@
 
         const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-        // Start a call (video or audio)
         async function startCall(callType) {
             if (!checkLogin()) return;
 
             try {
                 if (peerConnection) {
-                    endCall(); // Clean up any existing call
+                    endCall();
                 }
 
                 peerConnection = new RTCPeerConnection(servers);
@@ -599,7 +588,6 @@
             }
         }
 
-        // Handle incoming call signals
         async function handleCallSignal(msg) {
             if (!checkLogin()) return;
 
@@ -682,7 +670,6 @@
             }
         }
 
-        // End the call and clean up resources
         function endCall() {
             try {
                 if (peerConnection) {
@@ -709,18 +696,15 @@
             }
         }
 
-        // Event listeners for call buttons
         videoCallButton.addEventListener('click', () => startCall('video'));
         audioCallButton.addEventListener('click', () => startCall('audio'));
         endCallButton.addEventListener('click', endCall);
 
-        // Initial setup
         if (checkLogin()) {
             loadMessages();
             initializeWebSocket();
         }
 
-        // Clean up on page unload
         window.addEventListener('beforeunload', () => {
             endCall();
             if (ws && ws.readyState === WebSocket.OPEN) {
