@@ -205,9 +205,22 @@
         #error button:hover {
             background-color: #0056b3;
         }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.2rem;
+            color: #fff;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 5px;
+            display: none;
+        }
     </style>
 </head>
 <body>
+    <div id="loading">Loading...</div>
     <div class="container">
         <div class="header">
             <h2>Chats</h2>
@@ -249,14 +262,22 @@
         const endCallButton = document.getElementById('end-call-button');
         const callStatus = document.getElementById('call-status');
         const errorDiv = document.getElementById('error');
+        const loadingDiv = document.getElementById('loading');
         let ws = null;
         let peerConnection = null;
         let localStream = null;
         let reconnectAttempts = 0;
         let maxReconnectAttempts = 5;
-        let reconnectDelay = 1000; // Initial delay in ms
+        let reconnectDelay = 2000; // Increased initial delay to 2 seconds
+        let isConnecting = false; // Flag to prevent multiple WebSocket instances
+        const maxMessagesToLoad = 50; // Limit the number of messages to load
 
-        // بررسی ورود
+        // Show loading indicator
+        function showLoading(show) {
+            loadingDiv.style.display = show ? 'block' : 'none';
+        }
+
+        // Check login status
         function checkLogin() {
             const token = localStorage.getItem('access_token');
             const userId = localStorage.getItem('user_id');
@@ -272,6 +293,7 @@
             return true;
         }
 
+        // Show error message
         function showError(message, showRetry = false) {
             errorDiv.innerHTML = message;
             if (showRetry) {
@@ -280,7 +302,7 @@
                 retryButton.addEventListener('click', () => {
                     errorDiv.style.display = 'none';
                     reconnectAttempts = 0; // Reset attempts on manual retry
-                    reconnectDelay = 1000; // Reset delay
+                    reconnectDelay = 2000; // Reset delay
                     initializeWebSocket();
                 });
                 errorDiv.appendChild(retryButton);
@@ -292,48 +314,82 @@
             }, 5000);
         }
 
+        // Load messages from localStorage with a limit
         function loadMessages() {
-            const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
-            savedMessages.forEach(msg => {
-                displayMessage(msg.content, msg.isSent, msg.type, msg.fileUrl);
-            });
-        }
-
-        function displayMessage(content, isSent = true, type = 'text', fileUrl = null) {
-            const messageDiv = document.createElement('div');
-            messageDiv.classList.add('message');
-            messageDiv.classList.add(isSent ? 'sent' : 'received');
-
-            const contentDiv = document.createElement('div');
-            contentDiv.classList.add('message-content');
-
-            if (type === 'text') {
-                contentDiv.innerText = content;
-            } else if (type === 'file') {
-                if (fileUrl && fileUrl.startsWith('data:image/')) {
-                    const img = document.createElement('img');
-                    img.src = fileUrl;
-                    contentDiv.appendChild(img);
-                } else {
-                    const link = document.createElement('a');
-                    link.href = fileUrl;
-                    link.innerText = 'Download File';
-                    link.download = '';
-                    contentDiv.appendChild(link);
+            try {
+                let savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
+                // Limit the number of messages to load
+                if (savedMessages.length > maxMessagesToLoad) {
+                    savedMessages = savedMessages.slice(-maxMessagesToLoad); // Keep only the last 50 messages
+                    localStorage.setItem('chatMessages', JSON.stringify(savedMessages)); // Update localStorage
                 }
+                savedMessages.forEach((msg, index) => {
+                    // Throttle rendering to prevent browser overload
+                    setTimeout(() => {
+                        displayMessage(msg.content, msg.isSent, msg.type, msg.fileUrl);
+                    }, index * 50); // 50ms delay between each message render
+                });
+            } catch (error) {
+                console.error('Error loading messages:', error);
+                showError('Failed to load messages: ' + error.message);
+                localStorage.setItem('chatMessages', '[]'); // Reset on error
             }
-
-            messageDiv.appendChild(contentDiv);
-            chatArea.appendChild(messageDiv);
-            chatArea.scrollTop = chatArea.scrollHeight;
-
-            const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
-            savedMessages.push({ content, isSent, type, fileUrl, timestamp: new Date().toISOString() });
-            localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
         }
 
+        // Display a single message in the chat area
+        function displayMessage(content, isSent = true, type = 'text', fileUrl = null) {
+            try {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message');
+                messageDiv.classList.add(isSent ? 'sent' : 'received');
+
+                const contentDiv = document.createElement('div');
+                contentDiv.classList.add('message-content');
+
+                if (type === 'text') {
+                    contentDiv.innerText = content;
+                } else if (type === 'file') {
+                    if (fileUrl && fileUrl.startsWith('data:image/')) {
+                        const img = document.createElement('img');
+                        img.src = fileUrl;
+                        contentDiv.appendChild(img);
+                    } else {
+                        const link = document.createElement('a');
+                        link.href = fileUrl;
+                        link.innerText = 'Download File';
+                        link.download = '';
+                        contentDiv.appendChild(link);
+                    }
+                }
+
+                messageDiv.appendChild(contentDiv);
+                chatArea.appendChild(messageDiv);
+                chatArea.scrollTop = chatArea.scrollHeight;
+
+                // Update localStorage
+                const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
+                savedMessages.push({ content, isSent, type, fileUrl, timestamp: new Date().toISOString() });
+                // Keep only the last 50 messages in localStorage
+                if (savedMessages.length > maxMessagesToLoad) {
+                    savedMessages.shift(); // Remove the oldest message
+                }
+                localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
+            } catch (error) {
+                console.error('Error displaying message:', error);
+                showError('Failed to display message: ' + error.message);
+            }
+        }
+
+        // Initialize WebSocket connection
         function initializeWebSocket(wsUrlOverride = null) {
             if (!checkLogin()) return;
+            if (isConnecting) {
+                console.log('WebSocket connection already in progress, skipping...');
+                return;
+            }
+
+            showLoading(true);
+            isConnecting = true;
 
             const wsUrl = wsUrlOverride || 'wss://chat-backend-gxh8.onrender.com/ws';
             const token = localStorage.getItem('access_token');
@@ -342,34 +398,46 @@
                 setTimeout(() => {
                     window.location.href = 'login.html';
                 }, 2000);
+                isConnecting = false;
+                showLoading(false);
                 return;
             }
 
             const urlWithToken = `${wsUrl}?token=${encodeURIComponent(token)}`;
             console.log('Connecting to WebSocket:', urlWithToken);
             try {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
                 ws = new WebSocket(urlWithToken);
                 ws.onopen = () => {
                     console.log('WebSocket connected to', urlWithToken);
                     showError('WebSocket connected successfully', false);
-                    reconnectAttempts = 0; // Reset reconnect attempts
-                    reconnectDelay = 1000; // Reset delay
+                    reconnectAttempts = 0;
+                    reconnectDelay = 2000;
+                    isConnecting = false;
+                    showLoading(false);
                 };
                 ws.onmessage = (event) => {
-                    const msg = JSON.parse(event.data);
-                    console.log('WebSocket message received:', msg);
-                    if (msg.type === 'text') {
-                        displayMessage(msg.content, false, 'text');
-                    } else if (msg.type === 'file') {
-                        displayMessage(null, false, 'file', msg.file_url);
-                    } else if (msg.type === 'call_signal') {
-                        handleCallSignal(msg);
-                    } else if (msg.type === 'ping') {
-                        console.log('Received ping from server');
-                        if (ws && ws.readyState === WebSocket.OPEN) {
-                            ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
-                            console.log('Sent pong to server');
+                    try {
+                        const msg = JSON.parse(event.data);
+                        console.log('WebSocket message received:', msg);
+                        if (msg.type === 'text') {
+                            displayMessage(msg.content, false, 'text');
+                        } else if (msg.type === 'file') {
+                            displayMessage(null, false, 'file', msg.file_url);
+                        } else if (msg.type === 'call_signal') {
+                            handleCallSignal(msg);
+                        } else if (msg.type === 'ping') {
+                            console.log('Received ping from server');
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
+                                console.log('Sent pong to server');
+                            }
                         }
+                    } catch (error) {
+                        console.error('Error processing WebSocket message:', error);
+                        showError('Error processing message: ' + error.message);
                     }
                 };
                 ws.onclose = (event) => {
@@ -377,34 +445,48 @@
                     console.log('Close code:', event.code, 'Reason:', event.reason);
                     showError(`WebSocket connection closed (Code: ${event.code}, Reason: ${event.reason || 'Unknown'}). Reconnecting...`, true);
                     ws = null;
+                    isConnecting = false;
+                    showLoading(false);
                     attemptReconnect(wsUrl);
                 };
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
                     showError('WebSocket error occurred. Reconnecting...', true);
                     ws = null;
+                    isConnecting = false;
+                    showLoading(false);
                     attemptReconnect(wsUrl);
                 };
             } catch (error) {
                 showError('Error initializing WebSocket: ' + error.message, true);
                 ws = null;
+                isConnecting = false;
+                showLoading(false);
                 attemptReconnect(wsUrl);
             }
         }
 
+        // Reconnect with exponential backoff
         function attemptReconnect(wsUrl) {
             if (reconnectAttempts >= maxReconnectAttempts) {
                 showError('Max reconnection attempts reached. Please retry manually.', true);
                 return;
             }
+            if (isConnecting) {
+                console.log('Reconnection already in progress, skipping...');
+                return;
+            }
             reconnectAttempts++;
+            console.log(`Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts}, waiting ${reconnectDelay}ms`);
             setTimeout(() => {
-                console.log(`Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts}`);
-                initializeWebSocket(wsUrl);
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    initializeWebSocket(wsUrl);
+                }
                 reconnectDelay = Math.min(reconnectDelay * 2, 30000); // Exponential backoff, max 30 seconds
             }, reconnectDelay);
         }
 
+        // Send message
         sendButton.addEventListener('click', () => {
             if (!checkLogin()) return;
 
@@ -419,6 +501,7 @@
             messageInput.value = '';
         });
 
+        // Send file
         fileInput.addEventListener('change', () => {
             if (!checkLogin()) return;
 
@@ -435,19 +518,36 @@
                     showError('WebSocket is not connected. Cannot send file.', true);
                 }
             };
+            reader.onerror = (error) => {
+                console.error('Error reading file:', error);
+                showError('Failed to read file: ' + error.message);
+            };
             reader.readAsDataURL(file);
             fileInput.value = '';
         });
 
         const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
+        // Start a call (video or audio)
         async function startCall(callType) {
             if (!checkLogin()) return;
 
             try {
+                if (peerConnection) {
+                    endCall(); // Clean up any existing call
+                }
+
                 peerConnection = new RTCPeerConnection(servers);
                 const constraints = callType === 'video' ? { video: true, audio: true } : { audio: true };
-                localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                } catch (error) {
+                    console.error('Error accessing media devices:', error);
+                    showError('Failed to access camera/microphone: ' + error.message);
+                    endCall();
+                    return;
+                }
+
                 localVideo.srcObject = localStream;
                 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
@@ -467,7 +567,7 @@
                         callStatus.innerText = 'Connected';
                         callStatus.style.color = '#44ff44';
                         callStatus.style.display = 'block';
-                    } else if (peerConnection.connectionState === 'disconnected') {
+                    } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
                         endCall();
                     }
                 };
@@ -481,6 +581,8 @@
                     }));
                 } else {
                     showError('WebSocket is not connected. Cannot start call.', true);
+                    endCall();
+                    return;
                 }
 
                 videoCallArea.style.display = 'flex';
@@ -491,10 +593,13 @@
                     remoteVideo.style.display = 'none';
                 }
             } catch (error) {
+                console.error('Error starting call:', error);
                 showError('Failed to start call: ' + error.message);
+                endCall();
             }
         }
 
+        // Handle incoming call signals
         async function handleCallSignal(msg) {
             if (!checkLogin()) return;
 
@@ -502,7 +607,15 @@
                 if (!peerConnection) {
                     peerConnection = new RTCPeerConnection(servers);
                     const constraints = msg.signal.call_type === 'video' ? { video: true, audio: true } : { audio: true };
-                    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    try {
+                        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    } catch (error) {
+                        console.error('Error accessing media devices:', error);
+                        showError('Failed to access camera/microphone: ' + error.message);
+                        endCall();
+                        return;
+                    }
+
                     localVideo.srcObject = localStream;
                     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
@@ -522,7 +635,7 @@
                             callStatus.innerText = 'Connected';
                             callStatus.style.color = '#44ff44';
                             callStatus.style.display = 'block';
-                        } else if (peerConnection.connectionState === 'disconnected') {
+                        } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
                             endCall();
                         }
                     };
@@ -563,39 +676,57 @@
                     endCall();
                 }
             } catch (error) {
+                console.error('Error handling call signal:', error);
                 showError('Failed to handle call signal: ' + error.message);
+                endCall();
             }
         }
 
+        // End the call and clean up resources
         function endCall() {
-            if (peerConnection) {
-                peerConnection.close();
-                peerConnection = null;
+            try {
+                if (peerConnection) {
+                    peerConnection.close();
+                    peerConnection = null;
+                }
+                if (localStream) {
+                    localStream.getTracks().forEach(track => {
+                        track.stop();
+                        track.enabled = false;
+                    });
+                    localStream = null;
+                }
+                localVideo.srcObject = null;
+                remoteVideo.srcObject = null;
+                videoCallArea.style.display = 'none';
+                callStatus.innerText = '';
+                callStatus.style.display = 'none';
+                localVideo.style.display = 'block';
+                remoteVideo.style.display = 'block';
+            } catch (error) {
+                console.error('Error ending call:', error);
+                showError('Failed to end call: ' + error.message);
             }
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
-            }
-            localVideo.srcObject = null;
-            remoteVideo.srcObject = null;
-            videoCallArea.style.display = 'none';
-            callStatus.innerText = '';
-            callStatus.style.display = 'none';
-            localVideo.style.display = 'block';
-            remoteVideo.style.display = 'block';
         }
 
+        // Event listeners for call buttons
         videoCallButton.addEventListener('click', () => startCall('video'));
         audioCallButton.addEventListener('click', () => startCall('audio'));
         endCallButton.addEventListener('click', endCall);
 
-        // بارگذاری اولیه
+        // Initial setup
         if (checkLogin()) {
             loadMessages();
             initializeWebSocket();
         }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            endCall();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+        });
     </script>
 </body>
 </html>
-
-
