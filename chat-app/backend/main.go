@@ -62,7 +62,7 @@ type Chat struct {
 
 // Message struct for chat messages
 type Message struct {
-    Type      string     `json:"type"`      // "text", "file", "call_signal"
+    Type      string     `json:"type"`      // "text", "file", "call_signal", "ping", "pong"
     Sender    string     `json:"sender"`    // UUID
     Receiver  string     `json:"receiver"`  // UUID
     Content   string     `json:"content,omitempty"`
@@ -796,7 +796,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
     req.Header.Set("Authorization", "Bearer "+token)
     req.Header.Set("apikey", supabaseServiceKey)
 
-    httpClient := &http.Client{} // Use a distinct name to avoid shadowing
+    httpClient := &http.Client{}
     resp, err := httpClient.Do(req)
     if err != nil {
         log.Printf("Error validating token with Supabase: %v", err)
@@ -838,7 +838,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
     // Register client
     clientsMutex.Lock()
-    wsClient := &Client{Conn: conn} // Use a distinct name for the WebSocket client
+    wsClient := &Client{Conn: conn}
     if existingClient, exists := clients[userID]; exists {
         wsClient.PushToken = existingClient.PushToken
     }
@@ -854,14 +854,42 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         log.Printf("WebSocket client disconnected: %s", userID)
     }()
 
+    // Set up ping mechanism
+    pingTicker := time.NewTicker(30 * time.Second)
+    defer pingTicker.Stop()
+
+    go func() {
+        for range pingTicker.C {
+            clientsMutex.Lock()
+            if client, exists := clients[userID]; exists && client.Conn != nil {
+                err := client.Conn.WriteJSON(Message{Type: "ping", Timestamp: time.Now()})
+                if err != nil {
+                    log.Printf("Error sending ping to client %s: %v", userID, err)
+                    clientsMutex.Unlock()
+                    return
+                }
+            }
+            clientsMutex.Unlock()
+        }
+    }()
+
     ctx := context.Background()
 
     for {
         var msg Message
         err := conn.ReadJSON(&msg)
         if err != nil {
-            log.Printf("Error reading WebSocket message: %v", err)
+            if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+                log.Printf("WebSocket closed for user %s: code=%d, reason=%s", userID, websocket.CloseNormalClosure, err.Error())
+            } else {
+                log.Printf("Error reading WebSocket message for user %s: %v", userID, err)
+            }
             break
+        }
+
+        if msg.Type == "pong" {
+            log.Printf("Received pong from client %s", userID)
+            continue
         }
 
         msg.Timestamp = time.Now()
