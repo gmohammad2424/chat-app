@@ -257,7 +257,7 @@
         function checkLogin() {
             const token = localStorage.getItem('access_token');
             const userId = localStorage.getItem('user_id');
-            console.log('Checking login, token:', token, 'user_id:', userId); // دیباگ
+            console.log('Checking login, token:', token, 'user_id:', userId);
             if (!token || !userId) {
                 console.log('Token or user_id missing, redirecting to login.html');
                 showError('Authentication required. Redirecting to login...');
@@ -341,11 +341,12 @@
             }
 
             const urlWithToken = `${wsUrl}?token=${encodeURIComponent(token)}`;
-            console.log('Connecting to WebSocket:', urlWithToken); // دیباگ
+            console.log('Connecting to WebSocket:', urlWithToken);
             try {
                 ws = new WebSocket(urlWithToken);
                 ws.onopen = () => {
                     console.log('WebSocket connected to', urlWithToken);
+                    showError('WebSocket connected successfully', false);
                 };
                 ws.onmessage = (event) => {
                     const msg = JSON.parse(event.data);
@@ -358,16 +359,19 @@
                         handleCallSignal(msg);
                     }
                 };
-                ws.onclose = () => {
-                    console.log('WebSocket disconnected');
+                ws.onclose = (event) => {
+                    console.log('WebSocket disconnected:', event);
                     showError('WebSocket connection closed. Please check the server at ' + wsUrl, true);
+                    ws = null;
                 };
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
                     showError('Failed to connect to WebSocket server at ' + wsUrl, true);
+                    ws = null;
                 };
             } catch (error) {
                 showError('Error initializing WebSocket: ' + error.message, true);
+                ws = null;
             }
         }
 
