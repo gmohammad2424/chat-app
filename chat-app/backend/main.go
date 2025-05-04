@@ -44,7 +44,7 @@ var (
     jwtSecret    string                     // JWT secret for token generation
     encryptionKey []byte                    // Encryption key for file URLs
     fcmEnabled   bool                       // Flag to indicate if FCM is enabled
-    adminUserID  = "550e8400-e29b-41d4-a716-446655440000" // Admin's UUID
+   // adminUserID  = "550e8400-e29b-41d4-a716-446655440000" // Admin's UUID
     supabaseURL  string
     supabaseServiceKey string
     supabaseAnonKey    string
