@@ -187,6 +187,23 @@
             text-align: center;
             margin-top: 10px;
             display: none;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+        }
+        #error button {
+            background-color: #007bff;
+            margin-top: 10px;
+            padding: 8px 16px;
+            border-radius: 5px;
+            box-shadow: none;
+            margin-right: 10px;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        #error button:hover {
+            background-color: #0056b3;
         }
     </style>
 </head>
@@ -239,16 +256,28 @@
         // بررسی ورود
         function checkLogin() {
             const token = localStorage.getItem('access_token');
+            console.log('Checking login, token:', token); // دیباگ
             if (!token) {
-                window.location.href = 'login.html'; // هدایت به صفحه ورود اگر توکن وجود نداشته باشد
+                console.log('No token found, redirecting to login.html');
+                window.location.href = 'login.html';
                 return false;
             }
             return true;
         }
 
-        function showError(message) {
-            errorDiv.innerText = message;
+        function showError(message, showRetry = false) {
+            errorDiv.innerHTML = message;
+            if (showRetry) {
+                const retryButton = document.createElement('button');
+                retryButton.innerText = 'Retry Connection';
+                retryButton.addEventListener('click', () => {
+                    errorDiv.style.display = 'none';
+                    initializeWebSocket();
+                });
+                errorDiv.appendChild(retryButton);
+            }
             errorDiv.style.display = 'block';
+            console.error(message);
             setTimeout(() => {
                 errorDiv.style.display = 'none';
             }, 5000);
@@ -294,18 +323,19 @@
             localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
         }
 
-        function initializeWebSocket() {
+        function initializeWebSocket(wsUrlOverride = null) {
             if (!checkLogin()) return;
 
-            const wsUrl = 'wss://chat-backend-gxh8.onrender.com/ws';
+            const wsUrl = wsUrlOverride || 'wss://chat-backend-gxh8.onrender.com/ws';
             const token = localStorage.getItem('access_token');
             if (!token) {
-                showError('No authentication token found. Redirecting to login...');
+                showError('No authentication token found. Redirecting to login...', false);
                 window.location.href = 'login.html';
                 return;
             }
 
             const urlWithToken = `${wsUrl}?token=${encodeURIComponent(token)}`;
+            console.log('Connecting to WebSocket:', urlWithToken); // دیباگ
             try {
                 ws = new WebSocket(urlWithToken);
                 ws.onopen = () => {
@@ -324,14 +354,14 @@
                 };
                 ws.onclose = () => {
                     console.log('WebSocket disconnected');
-                    showError('WebSocket connection closed. Please check the server at ' + wsUrl);
+                    showError('WebSocket connection closed. Please check the server at ' + wsUrl, true);
                 };
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
-                    showError('Failed to connect to WebSocket server at ' + wsUrl);
+                    showError('Failed to connect to WebSocket server at ' + wsUrl, true);
                 };
             } catch (error) {
-                showError('Error initializing WebSocket: ' + error.message);
+                showError('Error initializing WebSocket: ' + error.message, true);
             }
         }
 
@@ -344,7 +374,7 @@
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'text', content, sender: localStorage.getItem('user_id') }));
             } else {
-                showError('WebSocket is not connected. Cannot send message.');
+                showError('WebSocket is not connected. Cannot send message.', true);
             }
             messageInput.value = '';
         });
@@ -362,7 +392,7 @@
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ type: 'file', file_url: fileUrl, sender: localStorage.getItem('user_id') }));
                 } else {
-                    showError('WebSocket is not connected. Cannot send file.');
+                    showError('WebSocket is not connected. Cannot send file.', true);
                 }
             };
             reader.readAsDataURL(file);
@@ -410,7 +440,7 @@
                         signal: { type: 'call-initiate', offer: offer, call_type: callType }
                     }));
                 } else {
-                    showError('WebSocket is not connected. Cannot start call.');
+                    showError('WebSocket is not connected. Cannot start call.', true);
                 }
 
                 videoCallArea.style.display = 'flex';
