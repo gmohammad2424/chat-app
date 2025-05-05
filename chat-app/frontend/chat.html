@@ -186,7 +186,6 @@
             color: #ff4444;
             text-align: center;
             margin-top: 10px;
-            display: none;
             padding: 10px;
             background-color: rgba(255, 255, 255, 0.1);
             border-radius: 5px;
@@ -217,13 +216,22 @@
             border-radius: 5px;
             display: none;
         }
+        select#receiver-select {
+            padding: 8px;
+            border-radius: 5px;
+            background-color: #fff;
+            color: #333;
+            border: none;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            max-width: 200px;
+        }
     </style>
 </head>
 <body>
     <div id="loading">Loading...</div>
     <div class="container">
         <div class="header">
-            <h2>Chats</h2>
+            <select id="receiver-select"><option value="">Select a user</option></select>
             <div class="call-buttons">
                 <button class="video-call-btn" id="video-call-button"></button>
                 <button class="audio-call-btn" id="audio-call-button"></button>
@@ -249,11 +257,17 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
+        const SUPABASE_URL = 'https://vridcilbrgyrxxmnjcqq.supabase.co';
+        const SUPABASE_KEY = 'your-anon-key'; // Replace with your Supabase anon key
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
         const chatArea = document.getElementById('chat-area');
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
         const fileInput = document.getElementById('file-input');
+        const receiverSelect = document.getElementById('receiver-select');
         const videoCallButton = document.getElementById('video-call-button');
         const audioCallButton = document.getElementById('audio-call-button');
         const videoCallArea = document.getElementById('video-call-area');
@@ -263,32 +277,22 @@
         const callStatus = document.getElementById('call-status');
         const errorDiv = document.getElementById('error');
         const loadingDiv = document.getElementById('loading');
+
         let ws = null;
         let peerConnection = null;
         let localStream = null;
+        let token = localStorage.getItem('access_token') || '';
+        let userId = '';
+        let receiverId = new URLSearchParams(window.location.search).get('receiver_id') || '';
+        let chatId = new URLSearchParams(window.location.search).get('chat_id') || '';
         let reconnectAttempts = 0;
-        let maxReconnectAttempts = 5;
+        const maxReconnectAttempts = 5;
         let reconnectDelay = 2000;
         let isConnecting = false;
         const maxMessagesToLoad = 50;
 
         function showLoading(show) {
             loadingDiv.style.display = show ? 'block' : 'none';
-        }
-
-        function checkLogin() {
-            const token = localStorage.getItem('access_token');
-            const userId = localStorage.getItem('user_id');
-            console.log('Checking login, token:', token, 'user_id:', userId);
-            if (!token || !userId) {
-                console.log('Token or user_id missing, redirecting to login.html');
-                showError('Authentication required. Redirecting to login...');
-                setTimeout(() => {
-                    window.location.href = 'login.html';
-                }, 2000);
-                return false;
-            }
-            return true;
         }
 
         function showError(message, showRetry = false) {
@@ -311,30 +315,91 @@
             }, 5000);
         }
 
-        function loadMessages() {
-            try {
-                let savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
-                if (savedMessages.length > maxMessagesToLoad) {
-                    savedMessages = savedMessages.slice(-maxMessagesToLoad);
-                    localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
+        function isValidUUID(id) {
+            return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+        }
+
+        async function loadUsers() {
+            const { data: userData, error: userError } = await supabase.auth.getUser();
+            if (userError || !userData.user) {
+                showError('Authentication required. Redirecting to login...');
+                setTimeout(() => window.location.href = 'login.html', 2000);
+                return;
+            }
+            userId = userData.user.id;
+
+            const { data, error } = await supabase
+                .from('users')
+                .select('user_id, username')
+                .neq('user_id', userId)
+                .order('username', { ascending: true });
+            if (error) {
+                showError('Error loading users: ' + error.message);
+                return;
+            }
+
+            receiverSelect.innerHTML = '<option value="">Select a user</option>';
+            data.forEach(user => {
+                const option = document.createElement('option');
+                option.value = user.user_id;
+                option.text = user.username;
+                receiverSelect.appendChild(option);
+            });
+
+            if (receiverId && isValidUUID(receiverId)) {
+                receiverSelect.value = receiverId;
+                if (receiverSelect.value === receiverId) {
+                    initializeWebSocket();
+                } else {
+                    receiverId = '';
+                    showError('Invalid receiver ID in URL. Please select a user.');
                 }
-                savedMessages.forEach((msg, index) => {
-                    setTimeout(() => {
-                        displayMessage(msg.content, msg.isSent, msg.type, msg.fileUrl);
-                    }, index * 50);
-                });
-            } catch (error) {
-                console.error('Error loading messages:', error);
-                showError('Failed to load messages: ' + error.message);
-                localStorage.setItem('chatMessages', '[]');
+            } else if (chatId) {
+                showError('Select a user to continue.');
+            } else {
+                showError('Select a user to start chatting.');
             }
         }
 
-        function displayMessage(content, isSent = true, type = 'text', fileUrl = null) {
+        async function loadMessages() {
+            if (!chatId) return;
+            try {
+                const response = await fetch(`https://chat-backend-gxh8.onrender.com/messages?chat_id=${chatId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+                const messages = await response.json();
+                chatArea.innerHTML = '';
+                messages.forEach(msg => {
+                    const isSent = msg.sender === userId;
+                    displayMessage(msg.content, isSent, msg.type, msg.file_url, msg.file_type);
+                });
+
+                // Sync with local storage
+                const savedMessages = messages.map(msg => ({
+                    content: msg.content,
+                    isSent: msg.sender === userId,
+                    type: msg.type,
+                    fileUrl: msg.file_url,
+                    fileType: msg.file_type,
+                    timestamp: msg.timestamp
+                }));
+                if (savedMessages.length > maxMessagesToLoad) {
+                    savedMessages.splice(0, savedMessages.length - maxMessagesToLoad);
+                }
+                localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
+            } catch (error) {
+                console.error('Error loading messages:', error);
+                showError('Failed to load messages: ' + error.message);
+            }
+        }
+
+        function displayMessage(content, isSent, type = 'text', fileUrl = null, fileType = null) {
             try {
                 const messageDiv = document.createElement('div');
-                messageDiv.classList.add('message');
-                messageDiv.classList.add(isSent ? 'sent' : 'received');
+                messageDiv.classList.add('message', isSent ? 'sent' : 'received');
 
                 const contentDiv = document.createElement('div');
                 contentDiv.classList.add('message-content');
@@ -342,15 +407,16 @@
                 if (type === 'text') {
                     contentDiv.innerText = content;
                 } else if (type === 'file') {
-                    if (fileUrl && fileUrl.startsWith('data:image/')) {
+                    if (fileType && fileType.startsWith('image/')) {
                         const img = document.createElement('img');
                         img.src = fileUrl;
                         contentDiv.appendChild(img);
                     } else {
                         const link = document.createElement('a');
                         link.href = fileUrl;
-                        link.innerText = 'Download File';
+                        link.innerText = fileType ? `File: ${fileType}` : 'Download File';
                         link.download = '';
+                        link.target = '_blank';
                         contentDiv.appendChild(link);
                     }
                 }
@@ -359,8 +425,9 @@
                 chatArea.appendChild(messageDiv);
                 chatArea.scrollTop = chatArea.scrollHeight;
 
+                // Update local storage
                 const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
-                savedMessages.push({ content, isSent, type, fileUrl, timestamp: new Date().toISOString() });
+                savedMessages.push({ content, isSent, type, fileUrl, fileType, timestamp: new Date().toISOString() });
                 if (savedMessages.length > maxMessagesToLoad) {
                     savedMessages.shift();
                 }
@@ -371,95 +438,111 @@
             }
         }
 
-        function initializeWebSocket(wsUrlOverride = null) {
+        async function initializeWebSocket() {
             if (!checkLogin()) return;
             if (isConnecting) {
-                console.log('WebSocket connection already in progress, skipping...');
+                console.log('WebSocket connection in progress, skipping...');
+                return;
+            }
+            if (!receiverId || !isValidUUID(receiverId)) {
+                showError('Please select a valid user.');
                 return;
             }
 
             showLoading(true);
             isConnecting = true;
 
-            const wsUrl = wsUrlOverride || 'wss://chat-backend-gxh8.onrender.com/ws';
-            const token = localStorage.getItem('access_token');
-            if (!token) {
-                showError('No authentication token found. Redirecting to login...');
-                setTimeout(() => {
-                    window.location.href = 'login.html';
-                }, 2000);
-                isConnecting = false;
-                showLoading(false);
-                return;
-            }
-
-            const urlWithToken = `${wsUrl}?token=${encodeURIComponent(token)}`;
-            console.log('Connecting to WebSocket:', urlWithToken);
+            const wsUrl = `wss://chat-backend-gxh8.onrender.com/ws?token=${encodeURIComponent(token)}&receiver_id=${receiverId}${chatId ? `&chat_id=${chatId}` : ''}`;
+            console.log('Connecting to WebSocket:', wsUrl);
             try {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.close();
                 }
-                ws = new WebSocket(urlWithToken);
+                ws = new WebSocket(wsUrl);
+
                 ws.onopen = () => {
-                    console.log('WebSocket connected to', urlWithToken);
-                    showError('WebSocket connected successfully', false);
+                    console.log('WebSocket connected');
+                    showError('Connected successfully', false);
                     reconnectAttempts = 0;
                     reconnectDelay = 2000;
                     isConnecting = false;
                     showLoading(false);
+                    if (chatId) loadMessages();
                 };
+
                 ws.onmessage = (event) => {
                     try {
                         const msg = JSON.parse(event.data);
                         console.log('WebSocket message received:', msg);
-                        if (msg.type === 'text') {
-                            displayMessage(msg.content, false, 'text');
+                        if (msg.type === 'chat_id') {
+                            chatId = msg.chat_id;
+                            loadMessages();
+                        } else if (msg.type === 'error') {
+                            showError('Server error: ' + msg.error);
+                            if (msg.error.includes('receiver_id') || msg.error.includes('Receiver not found')) {
+                                receiverId = '';
+                                receiverSelect.value = '';
+                            }
+                        } else if (msg.type === 'text') {
+                            displayMessage(msg.content, msg.sender === userId, 'text');
                         } else if (msg.type === 'file') {
-                            displayMessage(null, false, 'file', msg.file_url);
+                            displayMessage(null, msg.sender === userId, 'file', msg.file_url, msg.file_type);
                         } else if (msg.type === 'call_signal') {
                             handleCallSignal(msg);
                         } else if (msg.type === 'ping') {
                             console.log('Received ping from server');
                             if (ws && ws.readyState === WebSocket.OPEN) {
                                 ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
-                                console.log('Sent pong to server');
                             }
-                        } else if (msg.type === 'error') {
-                            console.error('Server error:', msg.error);
-                            showError('Server error: ' + msg.error);
                         }
                     } catch (error) {
                         console.error('Error processing WebSocket message:', error);
                         showError('Error processing message: ' + error.message);
                     }
                 };
+
                 ws.onclose = (event) => {
-                    console.log('WebSocket disconnected:', event);
-                    console.log('Close code:', event.code, 'Reason:', event.reason);
-                    showError(`WebSocket connection closed (Code: ${event.code}, Reason: ${event.reason || 'Unknown'}). Reconnecting...`, true);
-                    ws = null;
+                    console.log(`WebSocket closed: Code ${event.code}, Reason: ${event.reason}`);
                     isConnecting = false;
                     showLoading(false);
-                    attemptReconnect(wsUrl);
+                    if (event.code === 4000 || event.reason.includes('receiver_id') || event.reason.includes('Receiver not found')) {
+                        showError('Invalid receiver. Please select a valid user.', true);
+                        receiverId = '';
+                        receiverSelect.value = '';
+                    } else if (event.reason.includes('token')) {
+                        showError('Token expired. Refreshing...');
+                        refreshToken().then(newToken => {
+                            if (newToken) {
+                                token = newToken;
+                                localStorage.setItem('access_token', newToken);
+                                initializeWebSocket();
+                            } else {
+                                showError('Please log in again.');
+                                window.location.href = 'login.html';
+                            }
+                        });
+                    } else {
+                        showError(`WebSocket closed (Code: ${event.code}). Reconnecting...`, true);
+                        attemptReconnect();
+                    }
                 };
+
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
                     showError('WebSocket error occurred. Reconnecting...', true);
-                    ws = null;
                     isConnecting = false;
                     showLoading(false);
-                    attemptReconnect(wsUrl);
+                    attemptReconnect();
                 };
             } catch (error) {
                 showError('Error initializing WebSocket: ' + error.message, true);
-                ws = null;
                 isConnecting = false;
                 showLoading(false);
-                attemptReconnect(wsUrl);
+                attemptReconnect();
             }
         }
 
-        function attemptReconnect(wsUrl) {
+        function attemptReconnect() {
             if (reconnectAttempts >= maxReconnectAttempts) {
                 showError('Max reconnection attempts reached. Please retry manually.', true);
                 return;
@@ -472,60 +555,132 @@
             console.log(`Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts}, waiting ${reconnectDelay}ms`);
             setTimeout(() => {
                 if (!ws || ws.readyState !== WebSocket.OPEN) {
-                    initializeWebSocket(wsUrl);
+                    initializeWebSocket();
                 }
                 reconnectDelay = Math.min(reconnectDelay * 2, 30000);
             }, reconnectDelay);
         }
 
-        sendButton.addEventListener('click', () => {
-            if (!checkLogin()) return;
+        async function refreshToken() {
+            try {
+                const { data, error } = await supabase.auth.refreshSession();
+                if (error) {
+                    console.error('Token refresh error:', error);
+                    return null;
+                }
+                if (data.session) {
+                    console.log('Token refreshed');
+                    return data.session.access_token;
+                }
+                return null;
+            } catch (error) {
+                console.error('Token refresh failed:', error);
+                return null;
+            }
+        }
 
+        async function checkLogin() {
+            const { data: { session }, error } = await supabase.auth.getSession();
+            if (error || !session) {
+                showError('No active session. Redirecting to login...');
+                setTimeout(() => window.location.href = 'login.html', 2000);
+                return false;
+            }
+            token = session.access_token;
+            localStorage.setItem('access_token', token);
+            userId = session.user.id;
+            localStorage.setItem('user_id', userId);
+            loadUsers();
+            return true;
+        }
+
+        sendButton.addEventListener('click', () => {
+            if (!checkLogin() || !receiverId) {
+                showError('Please select a user.');
+                return;
+            }
             const content = messageInput.value.trim();
             if (!content) return;
-            displayMessage(content, true);
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'text', content, sender: localStorage.getItem('user_id'), receiver: '' }));
+                const msg = {
+                    type: 'text',
+                    sender: userId,
+                    receiver: receiverId,
+                    content,
+                    timestamp: new Date().toISOString()
+                };
+                ws.send(JSON.stringify(msg));
+                displayMessage(content, true);
+                messageInput.value = '';
             } else {
-                showError('WebSocket is not connected. Cannot send message.', true);
+                showError('Not connected. Please try again.', true);
             }
-            messageInput.value = '';
         });
 
-        fileInput.addEventListener('change', () => {
-            if (!checkLogin()) return;
-
+        fileInput.addEventListener('change', async () => {
+            if (!checkLogin() || !receiverId) {
+                showError('Please select a user.');
+                return;
+            }
             const file = fileInput.files[0];
             if (!file) return;
 
-            const reader = new FileReader();
-            reader.onload = () => {
-                const fileUrl = reader.result;
-                displayMessage(null, true, 'file', fileUrl);
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'file', file_url: fileUrl, sender: localStorage.getItem('user_id'), receiver: '  ' }));
-                } else {
-                    showError('WebSocket is not connected. Cannot send file.', true);
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const response = await fetch('https://chat-backend-gxh8.onrender.com/upload', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
                 }
-            };
-            reader.onerror = (error) => {
-                console.error('Error reading file:', error);
-                showError('Failed to read file: ' + error.message);
-            };
-            reader.readAsDataURL(file);
+                const { file_url, file_type } = await response.json();
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    const msg = {
+                        type: 'file',
+                        sender: userId,
+                        receiver: receiverId,
+                        file_url,
+                        file_type,
+                        timestamp: new Date().toISOString()
+                    };
+                    ws.send(JSON.stringify(msg));
+                    displayMessage(null, true, 'file', file_url, file_type);
+                } else {
+                    showError('Not connected. Cannot send file.', true);
+                }
+            } catch (error) {
+                console.error('Error uploading file:', error);
+                showError('Failed to upload file: ' + error.message);
+            }
             fileInput.value = '';
+        });
+
+        receiverSelect.addEventListener('change', () => {
+            receiverId = receiverSelect.value;
+            chatId = ''; // Reset for new receiver
+            if (receiverId && isValidUUID(receiverId)) {
+                console.log('Selected receiver:', receiverId);
+                initializeWebSocket();
+            } else {
+                showError('Please select a valid user.');
+                if (ws) ws.close();
+                chatArea.innerHTML = '';
+                localStorage.setItem('chatMessages', '[]');
+            }
         });
 
         const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
         async function startCall(callType) {
-            if (!checkLogin()) return;
-
+            if (!checkLogin() || !receiverId) {
+                showError('Please select a user.');
+                return;
+            }
             try {
-                if (peerConnection) {
-                    endCall();
-                }
-
+                if (peerConnection) endCall();
                 peerConnection = new RTCPeerConnection(servers);
                 const constraints = callType === 'video' ? { video: true, audio: true } : { audio: true };
                 try {
@@ -547,6 +702,8 @@
                     if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({
                             type: 'call_signal',
+                            sender: userId,
+                            receiver: receiverId,
                             signal: { type: 'ice-candidate', candidate: event.candidate }
                         }));
                     }
@@ -566,10 +723,12 @@
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         type: 'call_signal',
-                        signal: { type: 'call-initiate', offer: offer, call_type: callType }
+                        sender: userId,
+                        receiver: receiverId,
+                        signal: { type: 'call-initiate', offer, call_type: callType }
                     }));
                 } else {
-                    showError('WebSocket is not connected. Cannot start call.', true);
+                    showError('Not connected. Cannot start call.', true);
                     endCall();
                     return;
                 }
@@ -590,7 +749,6 @@
 
         async function handleCallSignal(msg) {
             if (!checkLogin()) return;
-
             try {
                 if (!peerConnection) {
                     peerConnection = new RTCPeerConnection(servers);
@@ -614,6 +772,8 @@
                         if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({
                                 type: 'call_signal',
+                                sender: userId,
+                                receiver: msg.sender,
                                 signal: { type: 'ice-candidate', candidate: event.candidate }
                             }));
                         }
@@ -630,14 +790,16 @@
                 }
 
                 if (msg.signal.type === 'call-initiate') {
-                    if (confirm(`Incoming ${msg.signal.call_type} call. Accept?`)) {
+                    if (confirm(`Incoming ${msg.signal.call_type} call from ${msg.sender}. Accept?`)) {
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.signal.offer));
                         const answer = await peerConnection.createAnswer();
                         await peerConnection.setLocalDescription(answer);
                         if (ws && ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({
                                 type: 'call_signal',
-                                signal: { type: 'call-accept', answer: answer, call_status: 'accepted' }
+                                sender: userId,
+                                receiver: msg.sender,
+                                signal: { type: 'call-accept', answer, call_status: 'accepted' }
                             }));
                         }
                         videoCallArea.style.display = 'flex';
@@ -651,6 +813,8 @@
                         if (ws && ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({
                                 type: 'call_signal',
+                                sender: userId,
+                                receiver: msg.sender,
                                 signal: { type: 'call-reject', call_status: 'rejected' }
                             }));
                         }
@@ -700,10 +864,21 @@
         audioCallButton.addEventListener('click', () => startCall('audio'));
         endCallButton.addEventListener('click', endCall);
 
-        if (checkLogin()) {
-            loadMessages();
-            initializeWebSocket();
-        }
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+                token = session.access_token;
+                localStorage.setItem('access_token', token);
+                userId = session.user.id;
+                localStorage.setItem('user_id', userId);
+                loadUsers();
+                if (receiverId && isValidUUID(receiverId)) {
+                    initializeWebSocket();
+                }
+            } else if (event === 'SIGNED_OUT') {
+                showError('Session expired. Redirecting to login...');
+                setTimeout(() => window.location.href = 'login.html', 2000);
+            }
+        });
 
         window.addEventListener('beforeunload', () => {
             endCall();
@@ -711,6 +886,8 @@
                 ws.close();
             }
         });
+
+        checkLogin();
     </script>
 </body>
 </html>
