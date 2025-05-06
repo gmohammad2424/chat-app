@@ -54,7 +54,7 @@ type Client struct {
     PushToken string
 }
 
-// Chat struct (updated to use string ID for UUID)
+// Chat struct (uses string ID for UUID)
 type Chat struct {
     ID           string `json:"id"`
     Participant1 string `json:"participant1"`
@@ -105,7 +105,7 @@ type PushRegistration struct {
 // WebSocket upgrader
 var upgrader = websocket.Upgrader{
     CheckOrigin: func(r *http.Request) bool {
-        return true
+        return true // Adjust for production
     },
 }
 
@@ -542,7 +542,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
     }
 }
 
-// Existing handlers (signupHandler, loginHandler, etc.)
+// Authentication and user handlers
 func signupHandler(w http.ResponseWriter, r *http.Request) {
     var user User
     if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
@@ -646,7 +646,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     data, _, err = postgrestClient.From("users").Insert([]interface{}{newUser}, false, "", "representation", "exact").Execute()
     if err != nil {
         log.Printf("Error registering user %s: %v", user.Username, err)
-        http.Error(w, "Failed to register user", http.StatusInternalServerError)
+        http.Error w, "Failed to register user", http.StatusInternalServerError)
         return
     }
     if err := json.Unmarshal(data, &result); err != nil {
