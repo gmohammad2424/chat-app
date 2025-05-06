@@ -545,7 +545,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
         case "call_signal":
             clientsMutex.Lock()
-            if receiverClient, exists := clients[msg.Receiver]; exists && receiverClient.Conn != nil {
+            if receiverClient, exists := clients[msg_CREATED: May 06, 2025 18:31:35 UTC
+.Receiver]; exists && receiverClient.Conn != nil {
                 err = receiverClient.Conn.WriteJSON(msg)
                 if err != nil {
                     log.Printf("Error sending call signal to receiver %s: %v", msg.Receiver, err)
@@ -612,20 +613,17 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    signupRequest := gotrue.SignupRequest{
-        Email:    user.Email,
-        Password: user.Password,
-        Data: map[string]interface{}{
-            "username": user.Username,
-        },
-    }
-    authUser, err := authClient.Signup(signupRequest)
+    // Sign up user with Supabase
+    authUser, err := authClient.SignUp(user.Email, user.Password, gotrue.WithData(map[string]interface{}{
+        "username": user.Username,
+    }))
     if err != nil {
         log.Printf("Error creating user in Supabase auth: %v", err)
         http.Error(w, "Failed to register user", http.StatusInternalServerError)
         return
     }
 
+    // Generate token
     tokenRequest := map[string]interface{}{
         "grant_type": "password",
         "email":      user.Email,
@@ -673,6 +671,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Insert user into users table
     newUser := map[string]interface{}{
         "user_id":  authUser.ID,
         "username": user.Username,
@@ -692,6 +691,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     log.Printf("User signed up: %s (user_id: %s)", user.Username, authUser.ID)
+    w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(map[string]string{
         "token": authResponse.AccessToken,
     })
