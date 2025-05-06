@@ -716,6 +716,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Fetch user from Supabase
     var users []map[string]interface{}
     data, _, err := postgrestClient.From("users").Select("*", "exact", false).Eq("username", creds.Username).Execute()
     if err != nil {
@@ -750,7 +751,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    tokenRequest := map[string]interface{
+    // Request token from Supabase
+    tokenRequest := map[string]interface{}{
         "grant_type": "password",
         "email":      email,
         "password":   creds.Password,
@@ -798,6 +800,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     log.Printf("Login successful for user: %s (user_id: %s)", creds.Username, userID)
+    w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(map[string]string{
         "token": authResponse.AccessToken,
     })
@@ -939,6 +942,7 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(messages)
 }
 
@@ -960,6 +964,7 @@ func allowedChatsHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(chats)
 }
 
