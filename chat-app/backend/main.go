@@ -54,9 +54,9 @@ type Client struct {
     PushToken string
 }
 
-// Chat struct (uses string ID for UUID)
+// Chat struct (uses int ID for int4)
 type Chat struct {
-    ID           string `json:"id"`
+    ID           int    `json:"id"`
     Participant1 string `json:"participant1"`
     Participant2 string `json:"participant2"`
 }
@@ -153,19 +153,9 @@ func decryptString(encrypted string) (string, error) {
     return string(plaintext), nil
 }
 
-// Validate UUID format
+// Validate UUID format for user IDs
 func isValidUUID(id string) bool {
     return regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).MatchString(id)
-}
-
-// Generate UUID
-func generateUUID() string {
-    b := make([]byte, 16)
-    _, err := rand.Read(b)
-    if err != nil {
-        log.Fatalf("Failed to generate UUID: %v", err)
-    }
-    return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 // Check if user exists
@@ -185,28 +175,28 @@ func userExists(userID string) (bool, error) {
 }
 
 // Get or create chat ID
-func getOrCreateChatID(sender, receiver string) (string, error) {
+func getOrCreateChatID(sender, receiver string) (int, error) {
     if sender == "" || receiver == "" {
-        return "", fmt.Errorf("sender or receiver ID is empty")
+        return 0, fmt.Errorf("sender or receiver ID is empty")
     }
     if !isValidUUID(sender) || !isValidUUID(receiver) {
-        return "", fmt.Errorf("invalid UUID format for sender %s or receiver %s", sender, receiver)
+        return 0, fmt.Errorf("invalid UUID format for sender %s or receiver %s", sender, receiver)
     }
 
     senderExists, err := userExists(sender)
     if err != nil {
-        return "", fmt.Errorf("error checking sender %s: %v", sender, err)
+        return 0, fmt.Errorf("error checking sender %s: %v", sender, err)
     }
     if !senderExists {
-        return "", fmt.Errorf("sender %s does not exist", sender)
+        return 0, fmt.Errorf("sender %s does not exist", sender)
     }
 
     receiverExists, err := userExists(receiver)
     if err != nil {
-        return "", fmt.Errorf("error checking receiver %s: %v", receiver, err)
+        return 0, fmt.Errorf("error checking receiver %s: %v", receiver, err)
     }
     if !receiverExists {
-        return "", fmt.Errorf("receiver %s does not exist", receiver)
+        return 0, fmt.Errorf("receiver %s does not exist", receiver)
     }
 
     participants := []string{sender, receiver}
@@ -218,20 +208,18 @@ func getOrCreateChatID(sender, receiver string) (string, error) {
     query = query.Eq("participant1", participant1).Eq("participant2", participant2)
     data, _, err := query.Execute()
     if err != nil {
-        return "", fmt.Errorf("error checking chat between %s and %s: %v", participant1, participant2, err)
+        return 0, fmt.Errorf("error checking chat between %s and %s: %v", participant1, participant2, err)
     }
     if err := json.Unmarshal(data, &chats); err != nil {
-        return "", fmt.Errorf("error unmarshaling chats: %v", err)
+        return 0, fmt.Errorf("error unmarshaling chats: %v", err)
     }
 
     if len(chats) > 0 {
-        log.Printf("Found chat ID %s for %s and %s", chats[0].ID, participant1, participant2)
+        log.Printf("Found chat ID %d for %s and %s", chats[0].ID, participant1, participant2)
         return chats[0].ID, nil
     }
 
-    chatID := generateUUID()
     newChat := map[string]interface{}{
-        "id":           chatID,
         "participant1": participant1,
         "participant2": participant2,
         "created_at":   time.Now(),
@@ -239,25 +227,30 @@ func getOrCreateChatID(sender, receiver string) (string, error) {
     var result []map[string]interface{}
     data, _, err = postgrestClient.From("chats").Insert([]interface{}{newChat}, false, "", "representation", "exact").Execute()
     if err != nil {
-        return "", fmt.Errorf("error creating chat for %s and %s: %v", participant1, participant2, err)
+        return 0, fmt.Errorf("error creating chat for %s and %s: %v", participant1, participant2, err)
     }
     if err := json.Unmarshal(data, &result); err != nil {
-        return "", fmt.Errorf("error unmarshaling new chat: %v", err)
+        return 0, fmt.Errorf("error unmarshaling new chat: %v", err)
     }
 
     if len(result) == 0 {
-        return "", fmt.Errorf("no chat ID returned")
+        return 0, fmt.Errorf("no chat ID returned")
     }
 
-    log.Printf("Created chat ID %s for %s and %s", chatID, participant1, participant2)
-    return chatID, nil
+    chatID, ok := result[0]["id"].(float64) // JSON numbers are float64
+    if !ok {
+        return 0, fmt.Errorf("invalid chat ID format")
+    }
+
+    log.Printf("Created chat ID %d for %s and %s", int(chatID), participant1, participant2)
+    return int(chatID), nil
 }
 
 // WebSocket handler
 func wsHandler(w http.ResponseWriter, r *http.Request) {
     token := r.URL.Query().Get("token")
     receiverID := r.URL.Query().Get("receiver_id")
-    chatID := r.URL.Query().Get("chat_id")
+    chatIDStr := r.URL.Query().Get("chat_id")
 
     if token == "" {
         log.Println("Token missing in WebSocket request")
@@ -330,20 +323,22 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
     }()
 
     // Get or validate chat ID
-    var resolvedChatID string
-    if chatID != "" {
-        if !isValidUUID(chatID) {
-            log.Printf("Invalid chat_id format: %s", chatID)
+    var resolvedChatID int
+    if chatIDStr != "" {
+        var chatID int
+        _, err := fmt.Sscanf(chatIDStr, "%d", &chatID)
+        if err != nil {
+            log.Printf("Invalid chat_id format: %s", chatIDStr)
             conn.WriteJSON(map[string]interface{}{"type": "error", "error": "Invalid chat_id"})
             conn.Close()
             return
         }
         var chats []Chat
         query := postgrestClient.From("chats").Select("id", "exact", false)
-        query = query.Eq("id", chatID).Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID), "")
+        query = query.Eq("id", fmt.Sprintf("%d", chatID)).Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID), "")
         data, _, err := query.Execute()
         if err != nil {
-            log.Printf("Error validating chat_id %s: %v", chatID, err)
+            log.Printf("Error validating chat_id %d: %v", chatID, err)
             conn.WriteJSON(map[string]interface{}{"type": "error", "error": "Invalid chat_id"})
             conn.Close()
             return
@@ -355,7 +350,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             return
         }
         if len(chats) == 0 {
-            log.Printf("Chat ID %s not found for user %s", chatID, userID)
+            log.Printf("Chat ID %d not found for user %s", chatID, userID)
             conn.WriteJSON(map[string]interface{}{"type": "error", "error": "Invalid chat_id"})
             conn.Close()
             return
@@ -646,7 +641,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     data, _, err = postgrestClient.From("users").Insert([]interface{}{newUser}, false, "", "representation", "exact").Execute()
     if err != nil {
         log.Printf("Error registering user %s: %v", user.Username, err)
-        http.Error w, "Failed to register user", http.StatusInternalServerError)
+        http.Error(w, "Failed to register user", http.StatusInternalServerError)
         return
     }
     if err := json.Unmarshal(data, &result); err != nil {
@@ -824,14 +819,17 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
     userID := r.Context().Value("user_id").(string)
-    chatID := r.URL.Query().Get("chat_id")
-    if chatID == "" {
+    chatIDStr := r.URL.Query().Get("chat_id")
+    if chatIDStr == "" {
         log.Println("chat_id parameter missing")
         http.Error(w, "chat_id is required", http.StatusBadRequest)
         return
     }
-    if !isValidUUID(chatID) {
-        log.Printf("Invalid chat_id format: %s", chatID)
+
+    var chatID int
+    _, err := fmt.Sscanf(chatIDStr, "%d", &chatID)
+    if err != nil {
+        log.Printf("Invalid chat_id format: %s", chatIDStr)
         http.Error(w, "Invalid chat_id format", http.StatusBadRequest)
         return
     }
@@ -839,10 +837,10 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
     // Verify user has access to chat
     var chats []Chat
     query := postgrestClient.From("chats").Select("id", "exact", false)
-    query = query.Eq("id", chatID).Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID), "")
+    query = query.Eq("id", fmt.Sprintf("%d", chatID)).Or(fmt.Sprintf("participant1.eq.%s,participant2.eq.%s", userID, userID), "")
     data, _, err := query.Execute()
     if err != nil {
-        log.Printf("Error validating chat_id %s for user %s: %v", chatID, userID, err)
+        log.Printf("Error validating chat_id %d for user %s: %v", chatID, userID, err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
@@ -852,15 +850,15 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
     if len(chats) == 0 {
-        log.Printf("Chat ID %s not accessible for user %s", chatID, userID)
+        log.Printf("Chat ID %d not accessible for user %s", chatID, userID)
         http.Error(w, "Unauthorized access to chat", http.StatusUnauthorized)
         return
     }
 
     var messages []map[string]interface{}
-    data, _, err = postgrestClient.From("messages").Select("*", "exact", false).Eq("chat_id", chatID).Execute()
+    data, _, err = postgrestClient.From("messages").Select("*", "exact", false).Eq("chat_id", fmt.Sprintf("%d", chatID)).Execute()
     if err != nil {
-        log.Printf("Error fetching messages for chat %s: %v", chatID, err)
+        log.Printf("Error fetching messages for chat %d: %v", chatID, err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
@@ -875,7 +873,7 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         if msg["type"] == "text" && msg["content"] != nil && msg["content"] != "" {
             content, ok := msg["content"].(string)
             if !ok {
-                log.Printf("Invalid content format for message in chat %s", chatID)
+                log.Printf("Invalid content format for message in chat %d", chatID)
                 continue
             }
             decrypted, err := decryptString(content)
@@ -888,7 +886,7 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         if msg["file_url"] != nil && msg["file_url"] != "" {
             fileURL, ok := msg["file_url"].(string)
             if !ok {
-                log.Printf("Invalid file_url format for message in chat %s", chatID)
+                log.Printf("Invalid file_url format for message in chat %d", chatID)
                 continue
             }
             decryptedURL, err := decryptString(fileURL)
