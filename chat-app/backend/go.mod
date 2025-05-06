@@ -10,7 +10,7 @@ require (
     github.com/joho/godotenv v1.5.1
     github.com/supabase-community/gotrue-go v1.2.1
     github.com/supabase-community/postgrest-go v0.0.10
-    github.com/supabase-community/storage-go v0.7.2
+    github.com/supabase-community/storage-go v0.7.0
 )
 
 require (
