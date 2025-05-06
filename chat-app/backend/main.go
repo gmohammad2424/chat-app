@@ -614,9 +614,14 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Sign up user with Supabase
-    authUser, err := authClient.SignUp(user.Email, user.Password, gotrue.WithData(map[string]interface{}{
-        "username": user.Username,
-    }))
+    signupRequest := gotrue.SignupRequest{
+        Email:    user.Email,
+        Password: user.Password,
+        Data: map[string]interface{}{
+            "username": user.Username,
+        },
+    }
+    authUser, err := authClient.Signup(signupRequest)
     if err != nil {
         log.Printf("Error creating user in Supabase auth: %v", err)
         http.Error(w, "Failed to register user", http.StatusInternalServerError)
@@ -739,7 +744,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     user := users[0]
     email, ok := user["email"].(string)
     if !ok {
-        log.Printf("Invalid email format for user %s", creds.Username)
+        log.Printf("Invalid email format dużą dla użytkownika %s", creds.Username)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
