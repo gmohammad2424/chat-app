@@ -13,6 +13,7 @@ import (
     "log"
     "net/http"
     "os"
+    "path/filepath"
     "regexp"
     "sort"
     "strings"
@@ -26,7 +27,6 @@ import (
     "github.com/gorilla/websocket"
     "github.com/joho/godotenv"
     "github.com/supabase-community/gotrue-go"
-    "github.com/supabase-community/gotrue-go/types"
     "github.com/supabase-community/postgrest-go"
     "github.com/supabase-community/storage-go"
 )
@@ -100,6 +100,13 @@ type UserResponse struct {
 type PushRegistration struct {
     UserID string `json:"user_id"`
     Token  string `json:"token"`
+}
+
+// SupabaseUser struct for parsing /user endpoint response
+type SupabaseUser struct {
+    ID           string                 `json:"id"`
+    Email        string                 `json:"email"`
+    UserMetadata map[string]interface{} `json:"user_metadata"`
 }
 
 // WebSocket upgrader
@@ -246,6 +253,40 @@ func getOrCreateChatID(sender, receiver string) (int, error) {
     return int(chatID), nil
 }
 
+// Validate token and get user
+func validateToken(token string) (*SupabaseUser, error) {
+    authURL := supabaseURL + "/auth/v1/user"
+    req, err := http.NewRequest("GET", authURL, nil)
+    if err != nil {
+        return nil, fmt.Errorf("error creating user request: %v", err)
+    }
+    req.Header.Set("Authorization", "Bearer "+token)
+    req.Header.Set("apikey", supabaseAnonKey)
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("error fetching user: %v", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        return nil, fmt.Errorf("invalid token: %s", string(body))
+    }
+
+    var user SupabaseUser
+    if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+        return nil, fmt.Errorf("error decoding user response: %v", err)
+    }
+
+    if user.ID == "" {
+        return nil, fmt.Errorf("user ID not found in response")
+    }
+
+    return &user, nil
+}
+
 // WebSocket handler
 func wsHandler(w http.ResponseWriter, r *http.Request) {
     token := r.URL.Query().Get("token")
@@ -270,14 +311,14 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Validate token using gotrue
-    user, err := authClient.GetUser(token)
+    // Validate token
+    user, err := validateToken(token)
     if err != nil {
         log.Printf("Error validating token: %v", err)
         http.Error(w, "Invalid token", http.StatusUnauthorized)
         return
     }
-    userID := user.ID.String()
+    userID := user.ID
     if userID == "" {
         log.Println("User ID not found in token response")
         http.Error(w, "Invalid token", http.StatusUnauthorized)
@@ -571,7 +612,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    signupRequest := types.SignupRequest{
+    signupRequest := gotrue.SignupRequest{
         Email:    user.Email,
         Password: user.Password,
         Data: map[string]interface{}{
@@ -633,7 +674,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     newUser := map[string]interface{}{
-        "user_id":  authUser.ID.String(),
+        "user_id":  authUser.ID,
         "username": user.Username,
         "email":    user.Email,
     }
@@ -650,7 +691,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("User signed up: %s (user_id: %s)", user.Username, authUser.ID.String())
+    log.Printf("User signed up: %s (user_id: %s)", user.Username, authUser.ID)
     json.NewEncoder(w).Encode(map[string]string{
         "token": authResponse.AccessToken,
     })
@@ -709,7 +750,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    tokenRequest := map[string]interface{}{
+    tokenRequest := map[string]interface{
         "grant_type": "password",
         "email":      email,
         "password":   creds.Password,
@@ -772,14 +813,14 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
         }
 
         tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-        user, err := authClient.GetUser(tokenString)
+        user, err := validateToken(tokenString)
         if err != nil {
             log.Printf("Invalid token: %v", err)
             http.Error(w, "Invalid token", http.StatusUnauthorized)
             return
         }
 
-        ctx := context.WithValue(r.Context(), "user_id", user.ID.String())
+        ctx := context.WithValue(r.Context(), "user_id", user.ID)
         ctx = context.WithValue(ctx, "username", user.UserMetadata["username"])
         next.ServeHTTP(w, r.WithContext(ctx))
     }
