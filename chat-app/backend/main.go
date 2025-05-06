@@ -613,11 +613,55 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Sign up user with Supabase
-    authUser, err := authClient.Signup(user.Email, user.Password)
+    // Sign up user with Supabase Auth API directly
+    signupRequest := map[string]interface{}{
+        "email":    user.Email,
+        "password": user.Password,
+        "data": map[string]interface{}{
+            "username": user.Username,
+        },
+    }
+    signupRequestBody, err := json.Marshal(signupRequest)
     if err != nil {
-        log.Printf("Error creating user in Supabase auth: %v", err)
+        log.Printf("Error marshaling signup request: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    authURL := supabaseURL + "/auth/v1/signup"
+    req, err := http.NewRequest("POST", authURL, bytes.NewBuffer(signupRequestBody))
+    if err != nil {
+        log.Printf("Error creating signup request: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return
+    }
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("apikey", supabaseAnonKey)
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        log.Printf("Error signing up user %s: %v", user.Username, err)
         http.Error(w, "Failed to register user", http.StatusInternalServerError)
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        log.Printf("Error signing up user %s: %s", user.Username, string(body))
+        http.Error(w, "Failed to register user", http.StatusInternalServerError)
+        return
+    }
+
+    var authUser struct {
+        ID           string                 `json:"id"`
+        Email        string                 `json:"email"`
+        UserMetadata map[string]interface{} `json:"user_metadata"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&authUser); err != nil {
+        log.Printf("Error decoding signup response: %v", err)
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
         return
     }
 
@@ -634,8 +678,8 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    authURL := supabaseURL + "/auth/v1/token?grant_type=password"
-    req, err := http.NewRequest("POST", authURL, bytes.NewBuffer(tokenRequestBody))
+    tokenURL := supabaseURL + "/auth/v1/token?grant_type=password"
+    req, err = http.NewRequest("POST", tokenURL, bytes.NewBuffer(tokenRequestBody))
     if err != nil {
         log.Printf("Error creating token request: %v", err)
         http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -644,8 +688,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
     req.Header.Set("Content-Type", "application/json")
     req.Header.Set("apikey", supabaseAnonKey)
 
-    client := &http.Client{}
-    resp, err := client.Do(req)
+    resp, err = client.Do(req)
     if err != nil {
         log.Printf("Error signing in user %s: %v", user.Username, err)
         http.Error(w, "Failed to generate token", http.StatusInternalServerError)
