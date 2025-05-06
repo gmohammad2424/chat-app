@@ -436,6 +436,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
     ctx := context.Background()
 
+    // Handle incoming WebSocket messages
     for {
         var msg Message
         err := conn.ReadJSON(&msg)
@@ -453,7 +454,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
             lastLog, exists := lastPongLog[userID]
             shouldLog := !exists || time.Since(lastLog) >= pongLogInterval
             if shouldLog {
-                log.Printf("Received pong from client %s", userID)
+                log.Printf("Received pong from client %s at %s", userID, time.Now().Format(time.RFC3339))
                 lastPongLog[userID] = time.Now()
             }
             clientsMutex.Unlock()
@@ -545,8 +546,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
         case "call_signal":
             clientsMutex.Lock()
-            if receiverClient, exists := clients[msg_CREATED: May 06, 2025 18:31:35 UTC
-.Receiver]; exists && receiverClient.Conn != nil {
+            if receiverClient, exists := clients[msg.Receiver]; exists && receiverClient.Conn != nil {
                 err = receiverClient.Conn.WriteJSON(msg)
                 if err != nil {
                     log.Printf("Error sending call signal to receiver %s: %v", msg.Receiver, err)
