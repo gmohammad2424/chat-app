@@ -3,15 +3,14 @@ module chat-app
 go 1.24
 
 require (
-    firebase.google.com/go/v4 v4.13.0
-    github.com/dgrijalva/jwt-go v3.2.0+incompatible
-    github.com/gorilla/handlers v1.5.1
-    github.com/gorilla/mux v1.8.0
-    github.com/gorilla/websocket v1.5.0
+    firebase.google.com/go/v4 v4.14.0
+    github.com/gorilla/handlers v1.5.2
+    github.com/gorilla/mux v1.8.1
+    github.com/gorilla/websocket v1.5.3
     github.com/joho/godotenv v1.5.1
     github.com/supabase-community/gotrue-go v1.2.1
     github.com/supabase-community/postgrest-go v0.0.10
-    github.com/supabase-community/storage-go v0.7.0
+    github.com/supabase-community/storage-go v0.7.2
 )
 
 require (
@@ -22,9 +21,8 @@ require (
     cloud.google.com/go/iam v1.1.6 // indirect
     cloud.google.com/go/longrunning v0.5.5 // indirect
     cloud.google.com/go/storage v1.39.1 // indirect
-    github.com/felixge/httpsnoop v1.0.3 // indirect
+    github.com/felixge/httpsnoop v1.0.4 // indirect
     github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-    github.com/golang/protobuf v1.5.4 // indirect
     github.com/google/s2a-go v0.1.7 // indirect
     github.com/google/uuid v1.6.0 // indirect
     github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
